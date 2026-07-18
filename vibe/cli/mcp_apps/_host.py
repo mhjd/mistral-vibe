@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
+import inspect
 import json
 import secrets
 import socket
+from typing import cast
 import webbrowser
 
 from pydantic import ValidationError
@@ -23,9 +25,12 @@ from vibe.cli.mcp_apps._protocol import (
 )
 from vibe.cli.mcp_apps.models import (
     CallTool,
+    ContextualSendUserMessage,
+    LegacySendUserMessage,
     MCPAppInitialState,
     MCPAppSession,
     SendUserMessage,
+    UserMessageContext,
 )
 
 _LOCALHOST = "127.0.0.1"
@@ -56,6 +61,7 @@ class MCPAppHost:
         self._initial_state = initial_state
         self._call_tool = call_tool
         self._send_user_message = send_user_message
+        self._send_user_message_signature = self._get_signature(send_user_message)
         self._open_browser = webbrowser.open
         self._page_html = ""
         self._session: MCPAppSession | None = None
@@ -183,7 +189,9 @@ class MCPAppHost:
                         "result": result,
                     })
                 case SendUserMessageRequest():
-                    result = await self._send_user_message(message.message)
+                    result = await self._invoke_send_user_message(
+                        message.message, message.context
+                    )
                     return JSONResponse({
                         "type": "user_message_result",
                         "request_id": message.request_id,
@@ -200,6 +208,37 @@ class MCPAppHost:
 
     def _has_valid_token(self, token: str | None) -> bool:
         return token is not None and secrets.compare_digest(token, self.session.token)
+
+    async def _invoke_send_user_message(
+        self, message: str, context: UserMessageContext | None
+    ) -> object:
+        if context is None and self._can_bind_send_user_message(message):
+            callback = cast(LegacySendUserMessage, self._send_user_message)
+            return await callback(message)
+
+        effective_context = context or {}
+        if self._can_bind_send_user_message(message, effective_context):
+            callback = cast(ContextualSendUserMessage, self._send_user_message)
+            return await callback(message, effective_context)
+
+        callback = cast(LegacySendUserMessage, self._send_user_message)
+        return await callback(message)
+
+    def _can_bind_send_user_message(self, *args: object) -> bool:
+        if self._send_user_message_signature is None:
+            return True
+        try:
+            self._send_user_message_signature.bind(*args)
+        except TypeError:
+            return False
+        return True
+
+    @staticmethod
+    def _get_signature(callback: SendUserMessage) -> inspect.Signature | None:
+        try:
+            return inspect.signature(callback)
+        except (TypeError, ValueError):
+            return None
 
     async def _wait_until_started(self) -> None:
         task = self._serve_task

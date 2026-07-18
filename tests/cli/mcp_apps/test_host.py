@@ -59,7 +59,7 @@ async def test_start_serves_host_page_and_opens_browser(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_call_tool_returns_result(monkeypatch):
+async def test_call_tool_with_tool_name_returns_result(monkeypatch):
     monkeypatch.setattr(
         "vibe.cli.mcp_apps._host.webbrowser.open", MagicMock(return_value=True)
     )
@@ -94,7 +94,42 @@ async def test_call_tool_returns_result(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_send_user_message_returns_result(monkeypatch):
+async def test_call_tool_with_name_alias_returns_result(monkeypatch):
+    monkeypatch.setattr(
+        "vibe.cli.mcp_apps._host.webbrowser.open", MagicMock(return_value=True)
+    )
+    call_tool = AsyncMock(return_value={"echo": "alias"})
+    host = _make_host(call_tool, AsyncMock(return_value=None))
+
+    try:
+        session = await host.start()
+        async with httpx.AsyncClient(
+            base_url=session.origin, trust_env=False
+        ) as client:
+            response = await client.post(
+                "/api/message",
+                json={
+                    "type": "call_tool",
+                    "token": session.token,
+                    "request_id": "tool-alias",
+                    "name": "echo_alias",
+                    "arguments": {"text": "alias"},
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "type": "tool_result",
+            "request_id": "tool-alias",
+            "result": {"echo": "alias"},
+        }
+        call_tool.assert_awaited_once_with("echo_alias", {"text": "alias"})
+    finally:
+        await host.stop()
+
+
+@pytest.mark.asyncio
+async def test_send_user_message_without_context_returns_result(monkeypatch):
     monkeypatch.setattr(
         "vibe.cli.mcp_apps._host.webbrowser.open", MagicMock(return_value=True)
     )
@@ -123,6 +158,117 @@ async def test_send_user_message_returns_result(monkeypatch):
             "result": {"accepted": True},
         }
         send_user_message.assert_awaited_once_with("hello user")
+    finally:
+        await host.stop()
+
+
+@pytest.mark.asyncio
+async def test_send_user_message_with_context_returns_result(monkeypatch):
+    monkeypatch.setattr(
+        "vibe.cli.mcp_apps._host.webbrowser.open", MagicMock(return_value=True)
+    )
+    context = {"source": "studio", "selection": [1, "two", None]}
+    send_user_message = AsyncMock(return_value={"accepted": True})
+    host = _make_host(AsyncMock(return_value={}), send_user_message)
+
+    try:
+        session = await host.start()
+        async with httpx.AsyncClient(
+            base_url=session.origin, trust_env=False
+        ) as client:
+            response = await client.post(
+                "/api/message",
+                json={
+                    "type": "send_user_message",
+                    "token": session.token,
+                    "request_id": "message-context",
+                    "message": "hello with context",
+                    "context": context,
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "type": "user_message_result",
+            "request_id": "message-context",
+            "result": {"accepted": True},
+        }
+        send_user_message.assert_awaited_once_with("hello with context", context)
+    finally:
+        await host.stop()
+
+
+@pytest.mark.asyncio
+async def test_send_user_message_with_context_keeps_legacy_callback(monkeypatch):
+    monkeypatch.setattr(
+        "vibe.cli.mcp_apps._host.webbrowser.open", MagicMock(return_value=True)
+    )
+    received_messages: list[str] = []
+
+    async def send_user_message(message: str) -> object:
+        received_messages.append(message)
+        return {"accepted": True}
+
+    host = MCPAppHost(
+        app_html=load_test_app_html(),
+        initial_state=MCPAppInitialState(),
+        call_tool=AsyncMock(return_value={}),
+        send_user_message=send_user_message,
+    )
+
+    try:
+        session = await host.start()
+        async with httpx.AsyncClient(
+            base_url=session.origin, trust_env=False
+        ) as client:
+            response = await client.post(
+                "/api/message",
+                json={
+                    "type": "send_user_message",
+                    "token": session.token,
+                    "request_id": "message-legacy",
+                    "message": "legacy callback",
+                    "context": {"source": "studio"},
+                },
+            )
+
+        assert response.status_code == 200
+        assert received_messages == ["legacy callback"]
+    finally:
+        await host.stop()
+
+
+@pytest.mark.asyncio
+async def test_send_user_message_rejects_non_object_context(monkeypatch):
+    monkeypatch.setattr(
+        "vibe.cli.mcp_apps._host.webbrowser.open", MagicMock(return_value=True)
+    )
+    send_user_message = AsyncMock(return_value={"accepted": True})
+    host = _make_host(AsyncMock(return_value={}), send_user_message)
+
+    try:
+        session = await host.start()
+        async with httpx.AsyncClient(
+            base_url=session.origin, trust_env=False
+        ) as client:
+            response = await client.post(
+                "/api/message",
+                json={
+                    "type": "send_user_message",
+                    "token": session.token,
+                    "request_id": "message-invalid-context",
+                    "message": "invalid context",
+                    "context": ["not", "an", "object"],
+                },
+            )
+
+        assert response.status_code == 400
+        assert response.json() == {
+            "type": "error",
+            "request_id": "",
+            "error": "Invalid message",
+        }
+        send_user_message.assert_not_awaited()
     finally:
         await host.stop()
 

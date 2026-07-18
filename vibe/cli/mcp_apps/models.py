@@ -4,10 +4,13 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from urllib.parse import urlencode
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, JsonValue
 
 CallTool = Callable[[str, dict[str, object]], Awaitable[object]]
-SendUserMessage = Callable[[str], Awaitable[object]]
+UserMessageContext = dict[str, JsonValue]
+LegacySendUserMessage = Callable[[str], Awaitable[object]]
+ContextualSendUserMessage = Callable[[str, UserMessageContext], Awaitable[object]]
+SendUserMessage = LegacySendUserMessage | ContextualSendUserMessage
 
 
 class MCPAppInitialState(BaseModel):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, JsonValue, TypeAdapter
 
 
 class MessageBase(BaseModel):
@@ -14,13 +14,16 @@ class MessageBase(BaseModel):
 
 class CallToolRequest(MessageBase):
     type: Literal["call_tool"]
-    tool_name: str = Field(min_length=1)
+    tool_name: str = Field(
+        min_length=1, validation_alias=AliasChoices("tool_name", "name")
+    )
     arguments: dict[str, object]
 
 
 class SendUserMessageRequest(MessageBase):
     type: Literal["send_user_message"]
     message: str = Field(min_length=1)
+    context: dict[str, JsonValue] | None = None
 
 
 MCPAppRequest = Annotated[
