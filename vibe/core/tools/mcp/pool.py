@@ -8,8 +8,20 @@ import hashlib
 from typing import TYPE_CHECKING, Any
 
 import anyio
+from pydantic import AnyUrl
 
+from mcp.shared.exceptions import McpError
 from vibe.core.logger import logger
+from vibe.core.tools.mcp.models import MCPAppResource
+from vibe.core.tools.mcp.resources import (
+    MCPResourceError,
+    MCPResourceNotFoundError,
+    MCPResourceReadError,
+    MCPResourceSessionError,
+    MCPServerNotFoundError,
+    parse_mcp_app_resource,
+    validate_ui_resource_uri,
+)
 from vibe.core.tools.mcp.tools import (
     MCPToolResult,
     _parse_call_result as parse_call_result,
@@ -48,11 +60,20 @@ def stdio_key(command: list[str], env: dict[str, str] | None, cwd: str | None) -
 
 
 @dataclass
-class _Request:
+class _ToolRequest:
     tool_name: str
     arguments: dict[str, Any]
     call_timeout: timedelta | None
     future: asyncio.Future[Any]
+
+
+@dataclass
+class _ResourceRequest:
+    uri: AnyUrl
+    future: asyncio.Future[Any]
+
+
+type _Request = _ToolRequest | _ResourceRequest
 
 
 class _StdioConnection:
@@ -92,7 +113,15 @@ class _StdioConnection:
     ) -> Any:
         self._ensure_worker()
         future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
-        await self._requests.put(_Request(tool_name, arguments, call_timeout, future))
+        await self._requests.put(
+            _ToolRequest(tool_name, arguments, call_timeout, future)
+        )
+        return await future
+
+    async def read_resource(self, uri: AnyUrl) -> Any:
+        self._ensure_worker()
+        future: asyncio.Future[Any] = asyncio.get_running_loop().create_future()
+        await self._requests.put(_ResourceRequest(uri, future))
         return await future
 
     async def _run(self) -> None:
@@ -119,16 +148,22 @@ class _StdioConnection:
     async def _handle(self, req: _Request) -> Any:
         session = await self._ensure_session()
         try:
-            return await session.call_tool(
-                req.tool_name, req.arguments, read_timeout_seconds=req.call_timeout
-            )
+            return await self._execute(session, req)
         except _TRANSPORT_ERRORS as exc:
             logger.debug("MCP stdio transport died, reconnecting once: %r", exc)
             await self._close_session()
             session = await self._ensure_session()
-            return await session.call_tool(
-                req.tool_name, req.arguments, read_timeout_seconds=req.call_timeout
-            )
+            return await self._execute(session, req)
+
+    @staticmethod
+    async def _execute(session: ClientSession, req: _Request) -> Any:
+        match req:
+            case _ToolRequest():
+                return await session.call_tool(
+                    req.tool_name, req.arguments, read_timeout_seconds=req.call_timeout
+                )
+            case _ResourceRequest():
+                return await session.read_resource(req.uri)
 
     async def _ensure_session(self) -> ClientSession:
         if self._session is not None:
@@ -194,8 +229,14 @@ class MCPConnectionPool:
 
     def __init__(self) -> None:
         self._conns: dict[str, _StdioConnection] = {}
+        self._connection_keys_by_alias: dict[str, str] = {}
         self._creation_lock = asyncio.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._closed = False
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("MCP connection pool is closed")
 
     def _bind_loop(self) -> None:
         loop = asyncio.get_running_loop()
@@ -240,23 +281,76 @@ class MCPConnectionPool:
         command: list[str],
         tool_name: str,
         arguments: dict[str, Any],
+        server_alias: str | None = None,
         env: dict[str, str] | None = None,
         cwd: str | None = None,
         startup_timeout_sec: float | None = None,
         tool_timeout_sec: float | None = None,
         sampling_callback: MCPSamplingHandler | None = None,
     ) -> MCPToolResult:
+        self._ensure_open()
         self._bind_loop()
         key = stdio_key(command, env, cwd)
         conn = await self._get_or_create(
             key, command, env, cwd, startup_timeout_sec, sampling_callback
         )
+        if server_alias:
+            self._connection_keys_by_alias[server_alias] = key
         call_timeout = timedelta(seconds=tool_timeout_sec) if tool_timeout_sec else None
         result = await conn.call_tool(tool_name, arguments, call_timeout)
         return parse_call_result("stdio:" + " ".join(command), tool_name, result)
 
+    async def read_resource(
+        self, *, server_alias: str, resource_uri: str | None
+    ) -> MCPAppResource:
+        if self._closed:
+            raise MCPResourceSessionError("MCP connection pool is closed")
+        self._bind_loop()
+        key = self._connection_keys_by_alias.get(server_alias)
+        if key is None:
+            raise MCPServerNotFoundError(server_alias)
+        conn = self._conns.get(key)
+        if conn is None:
+            raise MCPResourceSessionError(
+                f"MCP session for server {server_alias!r} is unavailable"
+            )
+
+        uri = validate_ui_resource_uri(resource_uri)
+        try:
+            result = await conn.read_resource(uri)
+        except McpError as exc:
+            message = str(exc)
+            if "resource" in message.lower() and (
+                "unknown" in message.lower() or "not found" in message.lower()
+            ):
+                raise MCPResourceNotFoundError(
+                    f"Unknown MCP resource {resource_uri!r} on server {server_alias!r}"
+                ) from exc
+            raise MCPResourceReadError(
+                f"MCP server {server_alias!r} failed to read {resource_uri!r}: {message}"
+            ) from exc
+        except _TRANSPORT_ERRORS as exc:
+            raise MCPResourceSessionError(
+                f"MCP session for server {server_alias!r} is unavailable"
+            ) from exc
+        except MCPResourceError:
+            raise
+        except Exception as exc:
+            raise MCPResourceReadError(
+                f"Failed to read MCP resource {resource_uri!r} "
+                f"from server {server_alias!r}"
+            ) from exc
+
+        return parse_mcp_app_resource(
+            server_alias=server_alias, requested_uri=uri, result=result
+        )
+
     async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
         conns = list(self._conns.values())
         self._conns.clear()
+        self._connection_keys_by_alias.clear()
         self._loop = None
         await asyncio.gather(*(conn.aclose() for conn in conns), return_exceptions=True)

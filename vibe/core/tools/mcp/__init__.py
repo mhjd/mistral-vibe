@@ -1,7 +1,18 @@
 from __future__ import annotations
 
+from vibe.core.tools.mcp.models import MCPAppResource, MCPAppResourceContent
 from vibe.core.tools.mcp.pool import MCPConnectionPool
 from vibe.core.tools.mcp.registry import AuthStatus, MCPRegistry
+from vibe.core.tools.mcp.resources import (
+    MCPResourceContentError,
+    MCPResourceEmptyError,
+    MCPResourceError,
+    MCPResourceNotFoundError,
+    MCPResourceReadError,
+    MCPResourceSessionError,
+    MCPResourceURIError,
+    MCPServerNotFoundError,
+)
 from vibe.core.tools.mcp.tools import (
     MCPToolResult,
     RemoteTool,
@@ -21,9 +32,19 @@ from vibe.core.tools.remote import MCPAppMetadata, MCPAppUI
 __all__ = [
     "AuthStatus",
     "MCPAppMetadata",
+    "MCPAppResource",
+    "MCPAppResourceContent",
     "MCPAppUI",
     "MCPConnectionPool",
     "MCPRegistry",
+    "MCPResourceContentError",
+    "MCPResourceEmptyError",
+    "MCPResourceError",
+    "MCPResourceNotFoundError",
+    "MCPResourceReadError",
+    "MCPResourceSessionError",
+    "MCPResourceURIError",
+    "MCPServerNotFoundError",
     "MCPToolResult",
     "RemoteTool",
     "_mcp_stderr_capture",

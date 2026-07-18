@@ -468,6 +468,7 @@ def create_mcp_stdio_proxy_tool_class(
                         command=self._stdio_command,
                         tool_name=self._remote_name,
                         arguments=payload,
+                        server_alias=self._server_name,
                         env=self._env,
                         cwd=self._cwd,
                         startup_timeout_sec=self._startup_timeout_sec,
