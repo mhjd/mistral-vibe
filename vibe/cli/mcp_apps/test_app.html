@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MCP App host test</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { max-width: 720px; margin: 32px auto; padding: 0 20px; }
+    button { margin: 0 8px 12px 0; padding: 8px 12px; }
+    pre { padding: 12px; border: 1px solid; border-radius: 6px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>MCP App host test</h1>
+  <h2>Initial state</h2>
+  <pre id="initial-state">Waiting for host…</pre>
+  <button id="call-tool" type="button">Call fake tool</button>
+  <button id="send-message" type="button">Send fake user message</button>
+  <h2>Responses</h2>
+  <pre id="responses"></pre>
+  <script>
+    const initialState = document.getElementById("initial-state");
+    const responses = document.getElementById("responses");
+    let sequence = 0;
+
+    function requestId() {
+      sequence += 1;
+      return `demo-${sequence}`;
+    }
+
+    function send(message) {
+      window.parent.postMessage(message, "*");
+    }
+
+    window.addEventListener("message", (event) => {
+      const message = event.data;
+      if (!message || typeof message !== "object") return;
+      if (message.type === "initial_state") {
+        initialState.textContent = JSON.stringify(message.state, null, 2);
+        return;
+      }
+      responses.textContent += `${JSON.stringify(message, null, 2)}\n`;
+    });
+
+    document.getElementById("call-tool").addEventListener("click", () => {
+      send({
+        type: "call_tool",
+        request_id: requestId(),
+        tool_name: "demo_echo",
+        arguments: {text: "Hello from the MCP App"},
+      });
+    });
+
+    document.getElementById("send-message").addEventListener("click", () => {
+      send({
+        type: "send_user_message",
+        request_id: requestId(),
+        message: "Hello from the MCP App",
+      });
+    });
+  </script>
+</body>
+</html>
