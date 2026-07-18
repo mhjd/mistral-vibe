@@ -193,6 +193,59 @@ async def test_vibe_selection_rejects_unknown_paragraph(storage: StudioStorage) 
 
 
 @pytest.mark.asyncio
+async def test_reset_clears_generation_and_vibe_selection(
+    storage: StudioStorage,
+) -> None:
+    selection = await storage.apply_document_selection(
+        "application-lattice",
+        resume_paragraph_ids=["cv-backend-01"],
+        cover_letter_paragraph_ids=["letter-engineering-01"],
+    )
+    generated = await storage.get_application("application-lattice")
+    generated_files = [
+        storage.data_dir / document.markdown_file
+        for document in generated.application.generated_documents
+    ]
+    assert selection.generated_document_ids
+    assert all(path.exists() for path in generated_files)
+
+    reset = await storage.reset_application_generation("application-lattice")
+
+    assert reset.application.status is ApplicationStatus.DRAFT
+    assert reset.application.generated_documents == []
+    assert reset.document_selection is None
+    assert not any(path.exists() for path in generated_files)
+
+
+@pytest.mark.asyncio
+async def test_edit_generated_paragraph_preserves_provenance(
+    storage: StudioStorage,
+) -> None:
+    generated = await storage.generate_application("application-lattice")
+    document = generated.documents[0]
+    original = document.paragraphs[0]
+
+    updated = await storage.update_generated_paragraph(
+        "application-lattice",
+        document.id,
+        original.id,
+        "Edited directly in Application Studio.",
+    )
+    updated_document = next(
+        item
+        for item in updated.application.generated_documents
+        if item.id == document.id
+    )
+    updated_paragraph = updated_document.paragraphs[0]
+
+    assert updated_paragraph.text == "Edited directly in Application Studio."
+    assert updated_paragraph.source_paragraph_id == original.source_paragraph_id
+    assert updated_paragraph.source_file == original.source_file
+    assert updated_paragraph.criteria_covered == original.criteria_covered
+    assert "Edited directly" in updated_document.markdown
+
+
+@pytest.mark.asyncio
 async def test_claim_verification_flags_rule_added_claim(
     storage: StudioStorage,
 ) -> None:
@@ -220,6 +273,8 @@ async def test_mcp_exposes_tools_ui_resource_and_metadata() -> None:
         "get_application",
         "save_application_constraints",
         "update_application_status",
+        "reset_application_generation",
+        "update_generated_paragraph",
         "generate_application",
         "apply_document_selection",
         "verify_claims",
@@ -256,6 +311,10 @@ async def test_ui_emits_structured_revision_message() -> None:
     assert "Do not edit source code or rules.json" in html
     assert "Documents refresh when you return" in html
     assert 'window.addEventListener("focus"' in html
+    assert "Reset demo" in html
+    assert '"reset_application_generation"' in html
+    assert "Edit paragraph" in html
+    assert '"update_generated_paragraph"' in html
 
 
 @pytest.mark.asyncio

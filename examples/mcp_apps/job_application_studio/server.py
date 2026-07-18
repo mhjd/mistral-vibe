@@ -69,6 +69,22 @@ async def update_application_status(
 
 
 @mcp.tool(
+    description="Clear generated documents and Vibe selection to restart the demo."
+)
+async def reset_application_generation(application_id: str) -> ApplicationDetail:
+    return await storage.reset_application_generation(application_id)
+
+
+@mcp.tool(description="Edit one generated paragraph while preserving its provenance.")
+async def update_generated_paragraph(
+    application_id: str, document_id: str, paragraph_id: str, text: str
+) -> ApplicationDetail:
+    return await storage.update_generated_paragraph(
+        application_id, document_id, paragraph_id, text
+    )
+
+
+@mcp.tool(
     description="Generate a deterministic resume and cover letter with provenance."
 )
 async def generate_application(application_id: str) -> GenerationResult:

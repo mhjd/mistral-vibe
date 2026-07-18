@@ -152,6 +152,49 @@ class StudioStorage:
             await self._write_applications(applications)
         return await self.get_application(application_id)
 
+    async def reset_application_generation(
+        self, application_id: str
+    ) -> ApplicationDetail:
+        async with self._write_lock:
+            applications = await self.load_applications()
+            application = self._get_by_id(applications, application_id, "application")
+            generated_files = [
+                self.data_dir / document.markdown_file
+                for document in application.generated_documents
+            ]
+            application.generated_documents = []
+            application.status = ApplicationStatus.DRAFT
+            self._document_selections.pop(application_id, None)
+            await self._write_applications(applications)
+            for generated_file in generated_files:
+                await AsyncPath(generated_file).unlink(missing_ok=True)
+        return await self.get_application(application_id)
+
+    async def update_generated_paragraph(
+        self, application_id: str, document_id: str, paragraph_id: str, text: str
+    ) -> ApplicationDetail:
+        async with self._write_lock:
+            applications = await self.load_applications()
+            application = self._get_by_id(applications, application_id, "application")
+            document = self._get_by_id(
+                application.generated_documents, document_id, "generated document"
+            )
+            paragraph = self._get_by_id(
+                document.paragraphs, paragraph_id, "generated paragraph"
+            )
+            paragraph.text = text
+            target = await self._find_target(application.target_id)
+            heading = (
+                "Resume"
+                if document.document_type is DocumentType.RESUME
+                else "Cover letter"
+            )
+            body = "\n\n".join(item.text for item in document.paragraphs)
+            document.markdown = f"# {heading} — {target.title}\n\n{body}\n"
+            await self._write_generated_files([document])
+            await self._write_applications(applications)
+        return await self.get_application(application_id)
+
     async def generate_application(self, application_id: str) -> GenerationResult:
         async with self._write_lock:
             applications = await self.load_applications()

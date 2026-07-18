@@ -109,6 +109,7 @@
         <button class="secondary" id="verify">Verify claims</button>
         <button class="secondary" id="ready">Mark ready</button>
         <button class="quiet" id="regenerate">Regenerate</button>
+        <button class="quiet" id="reset-demo">Reset demo</button>
       </div>
       <section id="verification"></section>
       <section class="documents" id="documents"></section>
@@ -221,11 +222,13 @@
               <div class="provenance">Source <code>${paragraph.source_file}#${paragraph.source_paragraph_id}</code><br>Criteria: ${paragraph.criteria_covered.join(", ") || "contextual"} · ${paragraph.transformation}</div>
               <div class="paragraph-actions">
                 <button data-source="${paragraph.source_paragraph_id}">View source</button>
+                <button data-edit="${paragraph.id}" data-document-id="${documentItem.id}">Edit paragraph</button>
                 <button data-revise="${paragraph.id}" data-document="${documentItem.document_type}">Request revision in Vibe</button>
               </div>
             </div>`).join("")}
         </article>`).join("");
       document.querySelectorAll("[data-source]").forEach(button => button.addEventListener("click", () => showSource(button.dataset.source)));
+      document.querySelectorAll("[data-edit]").forEach(button => button.addEventListener("click", () => editParagraph(button.dataset.documentId, button.dataset.edit)));
       document.querySelectorAll("[data-revise]").forEach(button => button.addEventListener("click", () => requestRevision(button.dataset.document, button.dataset.revise)));
     }
 
@@ -248,6 +251,22 @@
         {application_id: current.application.id, document_type: documentType, paragraph_id: paragraphId}
       );
       setWorkflow("Revision request sent to Vibe");
+    }
+
+    async function editParagraph(documentId, paragraphId) {
+      const documentItem = current.application.generated_documents.find(item => item.id === documentId);
+      const paragraph = documentItem?.paragraphs.find(item => item.id === paragraphId);
+      if (!paragraph) return;
+      const text = window.prompt("Edit generated paragraph", paragraph.text);
+      if (text === null || text.trim() === "" || text === paragraph.text) return;
+      setWorkflow("Saving paragraph…", true);
+      current = await invoke(
+        "update_generated_paragraph",
+        {application_id: current.application.id, document_id: documentId, paragraph_id: paragraphId, text},
+        current
+      );
+      renderCurrent();
+      setWorkflow("Paragraph updated — provenance preserved");
     }
 
     function requestVibeSelection() {
@@ -330,6 +349,22 @@
       setWorkflow("Marked ready");
     }
 
+    async function resetDemo() {
+      setWorkflow("Resetting application…", true);
+      current = await invoke(
+        "reset_application_generation",
+        {application_id: current.application.id},
+        {
+          ...current,
+          application: {...current.application, status: "draft", generated_documents: []},
+          document_selection: null
+        }
+      );
+      renderCurrent();
+      byId("verification").innerHTML = "";
+      setWorkflow("Demo reset — ready to generate with Vibe");
+    }
+
     async function verify() {
       setWorkflow("Checking claims against sources…", true);
       const result = await invoke("verify_claims", {application_id: current.application.id}, {verifications: []});
@@ -343,6 +378,7 @@
     byId("regenerate").addEventListener("click", generate);
     byId("ready").addEventListener("click", markReady);
     byId("verify").addEventListener("click", verify);
+    byId("reset-demo").addEventListener("click", resetDemo);
     window.addEventListener("focus", () => void refreshAfterVibe());
 
     (async () => {
