@@ -291,7 +291,19 @@
         `Complete selection context:\n${JSON.stringify(selectionContext, null, 2)}`
       ].join("\n\n");
       HostAdapter.sendUserMessage(message, selectionContext);
-      setWorkflow("Selection request sent to Vibe. Return here and regenerate after Vibe confirms.");
+      setWorkflow("Selection request sent to Vibe. Documents refresh when you return.");
+    }
+
+    async function refreshAfterVibe() {
+      if (!current) return;
+      setWorkflow("Refreshing Vibe selection…", true);
+      current = await invoke(
+        "get_application",
+        {application_id: current.application.id},
+        current
+      );
+      renderCurrent();
+      setWorkflow(current.document_selection ? "Vibe selection applied" : "Ready");
     }
 
     async function saveConstraints() {
@@ -331,6 +343,7 @@
     byId("regenerate").addEventListener("click", generate);
     byId("ready").addEventListener("click", markReady);
     byId("verify").addEventListener("click", verify);
+    window.addEventListener("focus", () => void refreshAfterVibe());
 
     (async () => {
       const listed = await invoke("list_applications", {}, {applications: demoApplications});

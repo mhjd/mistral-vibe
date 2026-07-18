@@ -160,6 +160,10 @@ async def test_vibe_selection_is_stored_and_used_with_provenance(
     )
 
     assert selection.application_id == "application-lattice"
+    assert selection.generated_document_ids == [
+        "application-lattice-resume",
+        "application-lattice-cover_letter",
+    ]
     assert detail.document_selection is not None
     assert detail.document_selection.resume_paragraph_ids == [
         "cv-backend-01",
@@ -250,6 +254,8 @@ async def test_ui_emits_structured_revision_message() -> None:
     assert "source_filename: source.file" in html
     assert "criteria_tags: paragraph.criteria_tags" in html
     assert "Do not edit source code or rules.json" in html
+    assert "Documents refresh when you return" in html
+    assert 'window.addEventListener("focus"' in html
 
 
 @pytest.mark.asyncio

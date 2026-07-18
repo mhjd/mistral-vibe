@@ -125,8 +125,11 @@ class StudioStorage:
             rationale=rationale,
         )
         self._document_selections[application_id] = selection
+        generated = await self.generate_application(application_id)
         return ApplyDocumentSelectionResult(
-            application_id=application_id, **selection.model_dump()
+            application_id=application_id,
+            generated_document_ids=[document.id for document in generated.documents],
+            **selection.model_dump(),
         )
 
     async def save_constraints(

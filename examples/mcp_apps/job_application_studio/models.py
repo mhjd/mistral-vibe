@@ -129,6 +129,7 @@ class DocumentSelection(StudioModel):
 
 class ApplyDocumentSelectionResult(DocumentSelection):
     application_id: str
+    generated_document_ids: list[str]
 
 
 class ClaimVerification(StudioModel):

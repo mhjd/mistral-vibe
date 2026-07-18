@@ -77,7 +77,7 @@ async def generate_application(application_id: str) -> GenerationResult:
 
 @mcp.tool(
     description=(
-        "Store Vibe's exact sourced paragraph selection for later document generation."
+        "Store Vibe's exact sourced paragraph selection and regenerate the documents."
     )
 )
 async def apply_document_selection(
