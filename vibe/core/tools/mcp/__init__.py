@@ -16,9 +16,12 @@ from vibe.core.tools.mcp.tools import (
     list_tools_http,
     list_tools_stdio,
 )
+from vibe.core.tools.remote import MCPAppMetadata, MCPAppUI
 
 __all__ = [
     "AuthStatus",
+    "MCPAppMetadata",
+    "MCPAppUI",
     "MCPConnectionPool",
     "MCPRegistry",
     "MCPToolResult",

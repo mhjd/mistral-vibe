@@ -22,6 +22,7 @@ from vibe.core.config import MCPHttp, MCPStdio, MCPStreamableHttp, VibeConfig
 from vibe.core.tools.base import BaseToolConfig, BaseToolState, InvokeContext
 from vibe.core.tools.mcp import (
     AuthStatus,
+    MCPAppMetadata,
     MCPConnectionPool,
     MCPRegistry,
     MCPToolResult,
@@ -58,6 +59,54 @@ class TestRemoteTool:
             "type": "object",
             "properties": {"arg": {"type": "string"}},
         }
+        assert tool.metadata is None
+        assert tool.has_mcp_app is False
+        assert tool.ui_resource_uri is None
+
+    def test_preserves_non_app_metadata(self):
+        metadata = {"vendor.example/version": "1"}
+
+        tool = RemoteTool.model_validate({"name": "test_tool", "_meta": metadata})
+
+        assert tool.metadata == metadata
+        assert tool.mcp_app is None
+        assert tool.has_mcp_app is False
+
+    def test_extracts_mcp_app_resource_uri_from_sdk_attribute(self):
+        metadata = {
+            "ui": {"resourceUri": "ui://job-application-studio/main"},
+            "vendor.example/extra": {"preserved": True},
+        }
+        sdk_tool = SimpleNamespace(
+            name="test_tool",
+            description="A test tool",
+            inputSchema={"type": "object"},
+            meta=metadata,
+        )
+
+        tool = RemoteTool.model_validate(sdk_tool)
+
+        assert tool.metadata == metadata
+        assert isinstance(tool.mcp_app, MCPAppMetadata)
+        assert tool.has_mcp_app is True
+        assert tool.ui_resource_uri == "ui://job-application-studio/main"
+
+    @pytest.mark.parametrize("ui", ["not-an-object", {"resourceUri": "not a uri"}])
+    def test_invalid_ui_metadata_is_not_an_mcp_app(self, ui: object):
+        metadata = {"ui": ui, "preserved": True}
+
+        tool = RemoteTool.model_validate({"name": "test_tool", "_meta": metadata})
+
+        assert tool.metadata == metadata
+        assert tool.mcp_app is None
+        assert tool.has_mcp_app is False
+        assert tool.ui_resource_uri is None
+
+    def test_invalid_raw_metadata_is_ignored(self):
+        tool = RemoteTool.model_validate({"name": "test_tool", "_meta": []})
+
+        assert tool.metadata is None
+        assert tool.has_mcp_app is False
 
     def test_uses_default_schema_when_none_provided(self):
         tool = RemoteTool(name="test_tool")
@@ -94,6 +143,7 @@ class TestMCPToolResult:
         assert result.tool == "test_tool"
         assert result.text == "output"
         assert result.structured is None
+        assert result.metadata is None
 
     def test_creates_result_with_structured_content(self):
         result = MCPToolResult(
@@ -105,6 +155,26 @@ class TestMCPToolResult:
 
 
 class TestParseCallResult:
+    def test_parses_result_without_metadata(self):
+        result = _parse_call_result(
+            "server", "tool", {"structuredContent": None, "content": []}
+        )
+
+        assert result.metadata is None
+
+    def test_preserves_result_metadata(self):
+        metadata = {"ui": {"resourceUri": "ui://example/result"}, "trace": "abc"}
+        result_obj = SimpleNamespace(
+            structuredContent=None,
+            content=[SimpleNamespace(text="done")],
+            meta=metadata,
+        )
+
+        result = _parse_call_result("server", "tool", result_obj)
+
+        assert result.text == "done"
+        assert result.metadata == metadata
+
     def test_parses_text_content(self):
         mock_result = MagicMock()
         mock_result.structuredContent = None
@@ -204,6 +274,8 @@ class TestMCPHttpClient:
         assert captured["url"] == "https://mcp.example.com"
         assert captured["http_client"] is fake_client
         assert [tool.name for tool in tools] == ["remote_tool"]
+        assert tools[0].metadata == {"ui": {"resourceUri": "ui://remote-tool/main"}}
+        assert tools[0].ui_resource_uri == "ui://remote-tool/main"
 
     @pytest.mark.asyncio
     async def test_call_tool_http_uses_vibe_mcp_http_client(self):
@@ -241,6 +313,7 @@ class TestMCPHttpClient:
         assert captured["url"] == "https://mcp.example.com"
         assert captured["http_client"] is fake_client
         assert result.structured == {"ok": True}
+        assert result.metadata == {"server.example/result-id": "result-1"}
 
 
 class _FakeHttpClient:
@@ -270,10 +343,21 @@ class _FakeMCPClientSession:
         pass
 
     async def list_tools(self) -> SimpleNamespace:
-        return SimpleNamespace(tools=[{"name": "remote_tool"}])
+        return SimpleNamespace(
+            tools=[
+                {
+                    "name": "remote_tool",
+                    "_meta": {"ui": {"resourceUri": "ui://remote-tool/main"}},
+                }
+            ]
+        )
 
     async def call_tool(self, *_: Any, **__: Any) -> SimpleNamespace:
-        return SimpleNamespace(structuredContent={"ok": True}, content=None)
+        return SimpleNamespace(
+            structuredContent={"ok": True},
+            content=None,
+            meta={"server.example/result-id": "result-1"},
+        )
 
 
 class TestMCPStderrCapture:
@@ -394,6 +478,22 @@ class TestCreateMCPHttpProxyToolClass:
 
         assert params == {"type": "object", "properties": {"arg": {"type": "string"}}}
 
+    def test_preserves_mcp_app_metadata_on_proxy(self):
+        metadata = {
+            "ui": {"resourceUri": "ui://job-application-studio/main"},
+            "vendor.example/extra": True,
+        }
+        remote = RemoteTool.model_validate({"name": "my_tool", "_meta": metadata})
+
+        tool_cls = create_mcp_http_proxy_tool_class(
+            url="http://localhost:8080", remote=remote
+        )
+
+        assert tool_cls.get_mcp_metadata() == metadata
+        assert isinstance(tool_cls.get_mcp_app(), MCPAppMetadata)
+        assert tool_cls.has_mcp_app() is True
+        assert tool_cls.get_ui_resource_uri() == "ui://job-application-studio/main"
+
 
 class TestCreateMCPStdioProxyToolClass:
     def test_creates_tool_class_with_alias(self):
@@ -403,6 +503,21 @@ class TestCreateMCPStdioProxyToolClass:
         )
 
         assert tool_cls.get_name() == "my_server_my_tool"
+        assert tool_cls.get_mcp_metadata() is None
+        assert tool_cls.has_mcp_app() is False
+        assert tool_cls.get_ui_resource_uri() is None
+
+    def test_preserves_mcp_app_metadata_on_proxy(self):
+        metadata = {"ui": {"resourceUri": "ui://local-tool/main"}}
+        remote = RemoteTool.model_validate({"name": "my_tool", "_meta": metadata})
+
+        tool_cls = create_mcp_stdio_proxy_tool_class(
+            command=["mcp-server"], remote=remote, alias="my_server"
+        )
+
+        assert tool_cls.get_mcp_metadata() == metadata
+        assert tool_cls.has_mcp_app() is True
+        assert tool_cls.get_ui_resource_uri() == "ui://local-tool/main"
 
     def test_creates_tool_class_with_command_based_alias(self):
         remote = RemoteTool(name="my_tool")

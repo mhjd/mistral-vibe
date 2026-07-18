@@ -12,7 +12,7 @@ import threading
 from typing import TYPE_CHECKING, Any, ClassVar, TextIO
 
 import httpx
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from mcp import ClientSession
 from mcp.client.auth import OAuthFlowError
@@ -24,13 +24,7 @@ from vibe.core.auth.mcp_oauth import (
     unwrap_oauth_refresh_error,
 )
 from vibe.core.logger import logger
-from vibe.core.tools.base import (
-    BaseTool,
-    BaseToolConfig,
-    BaseToolState,
-    InvokeContext,
-    ToolError,
-)
+from vibe.core.tools.base import InvokeContext, ToolError
 from vibe.core.tools.mcp_sampling import MCPSamplingHandler
 from vibe.core.tools.remote import MCPTool, MCPToolResult, RemoteTool, _OpenArgs
 from vibe.core.tools.ui import ToolResultDisplay
@@ -89,10 +83,13 @@ class _MCPContentBlock(BaseModel):
 
 
 class _MCPResultIn(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(extra="ignore", from_attributes=True)
 
     structuredContent: dict[str, Any] | None = None
     content: list[_MCPContentBlock] | None = None
+    metadata: dict[str, Any] | None = Field(
+        default=None, validation_alias=AliasChoices("_meta", "meta")
+    )
 
     @field_validator("structuredContent", mode="before")
     @classmethod
@@ -109,16 +106,29 @@ class _MCPResultIn(BaseModel):
                 return None
         return v if isinstance(v, dict) else None
 
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _normalize_metadata(cls, value: Any) -> dict[str, Any] | None:
+        return value if isinstance(value, dict) else None
+
 
 def _parse_call_result(server: str, tool: str, result_obj: Any) -> MCPToolResult:
     parsed = _MCPResultIn.model_validate(result_obj)
     if (structured := parsed.structuredContent) is not None:
-        return MCPToolResult(server=server, tool=tool, text=None, structured=structured)
+        return MCPToolResult(
+            server=server,
+            tool=tool,
+            text=None,
+            structured=structured,
+            metadata=parsed.metadata,
+        )
 
     blocks = parsed.content or []
     parts = [b.text for b in blocks if isinstance(b.text, str)]
     text = "\n".join(parts) if parts else None
-    return MCPToolResult(server=server, tool=tool, text=text, structured=None)
+    return MCPToolResult(
+        server=server, tool=tool, text=text, structured=None, metadata=parsed.metadata
+    )
 
 
 def create_vibe_mcp_http_client(
@@ -201,7 +211,7 @@ def create_mcp_http_proxy_tool_class(
     startup_timeout_sec: float | None = None,
     tool_timeout_sec: float | None = None,
     sampling_enabled: bool = True,
-) -> type[BaseTool[_OpenArgs, MCPToolResult, BaseToolConfig, BaseToolState]]:
+) -> type[MCPTool]:
     from urllib.parse import urlparse
 
     def _alias_from_url(url: str) -> str:
@@ -223,6 +233,8 @@ def create_mcp_http_proxy_tool_class(
         _mcp_url: ClassVar[str] = url
         _remote_name: ClassVar[str] = remote.name
         _input_schema: ClassVar[dict[str, Any]] = remote.input_schema
+        _metadata: ClassVar[dict[str, Any] | None] = remote.metadata
+        _mcp_app = remote.mcp_app
         _headers: ClassVar[dict[str, str]] = dict(headers or {})
         _auth: ClassVar[httpx.Auth | None] = auth
         _oauth_runtime: ClassVar[MCPHttpOAuthRuntime | None] = oauth_runtime
@@ -402,7 +414,7 @@ def create_mcp_stdio_proxy_tool_class(
     startup_timeout_sec: float | None = None,
     tool_timeout_sec: float | None = None,
     sampling_enabled: bool = True,
-) -> type[BaseTool[_OpenArgs, MCPToolResult, BaseToolConfig, BaseToolState]]:
+) -> type[MCPTool]:
     def _alias_from_command(cmd: list[str]) -> str:
         prog = Path(cmd[0]).name.replace(".", "_") if cmd else "mcp"
         digest = hashlib.blake2s(
@@ -426,6 +438,8 @@ def create_mcp_stdio_proxy_tool_class(
         _stdio_command: ClassVar[list[str]] = command
         _remote_name: ClassVar[str] = remote.name
         _input_schema: ClassVar[dict[str, Any]] = remote.input_schema
+        _metadata: ClassVar[dict[str, Any] | None] = remote.metadata
+        _mcp_app = remote.mcp_app
         _env: ClassVar[dict[str, str] | None] = env
         _cwd: ClassVar[str | None] = cwd
         _startup_timeout_sec: ClassVar[float | None] = startup_timeout_sec
