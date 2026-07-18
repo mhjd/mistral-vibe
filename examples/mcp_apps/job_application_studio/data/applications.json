@@ -1,0 +1,73 @@
+[
+  {
+    "id": "application-northstar",
+    "target_id": "target-ai-research-master",
+    "status": "generated",
+    "constraints": {
+      "emphasis_requirement_ids": ["research-methods"],
+      "excluded_topics": [],
+      "tone": "precise and curious",
+      "notes": "Connect practical evaluation work to research readiness."
+    },
+    "generated_documents": [
+      {
+        "id": "application-northstar-resume",
+        "document_type": "resume",
+        "markdown_file": "generated/application-northstar_resume.md",
+        "markdown": "# Resume — MSc Applied Machine Intelligence\n\nBuilt a reproducible evaluation harness for small vision models, recording dataset versions, seeds, and error analyses.\n",
+        "paragraphs": [
+          {
+            "id": "application-northstar-resume-1",
+            "text": "Built a reproducible evaluation harness for small vision models, recording dataset versions, seeds, and error analyses.",
+            "source_file": "source_documents/resume_2025.md",
+            "source_paragraph_id": "cv-research-01",
+            "criteria_covered": ["research-methods", "machine-learning", "responsible-ai"],
+            "transformation": "selected",
+            "claims": ["Built a reproducible evaluation harness for small vision models."]
+          }
+        ]
+      },
+      {
+        "id": "application-northstar-cover_letter",
+        "document_type": "cover_letter",
+        "markdown_file": "generated/application-northstar_cover_letter.md",
+        "markdown": "# Cover letter — MSc Applied Machine Intelligence\n\nI am seeking a program where careful experimentation is treated as a first-class skill, so I can turn practical model-building experience into a rigorous research practice.\n",
+        "paragraphs": [
+          {
+            "id": "application-northstar-cover_letter-1",
+            "text": "I am seeking a program where careful experimentation is treated as a first-class skill, so I can turn practical model-building experience into a rigorous research practice.",
+            "source_file": "source_documents/letter_research.md",
+            "source_paragraph_id": "letter-research-01",
+            "criteria_covered": ["research-methods", "responsible-ai"],
+            "transformation": "selected",
+            "claims": []
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "application-meridian",
+    "target_id": "target-autonomous-systems-master",
+    "status": "in_progress",
+    "constraints": {
+      "emphasis_requirement_ids": ["robotics"],
+      "excluded_topics": [],
+      "tone": "concrete and concise",
+      "notes": "Show perception failure analysis."
+    },
+    "generated_documents": []
+  },
+  {
+    "id": "application-lattice",
+    "target_id": "target-backend-platform-job",
+    "status": "draft",
+    "constraints": {
+      "emphasis_requirement_ids": ["distributed-systems"],
+      "excluded_topics": [],
+      "tone": "direct and specific",
+      "notes": "Prefer production reliability evidence."
+    },
+    "generated_documents": []
+  }
+]

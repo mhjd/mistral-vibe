@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Application Studio</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --ink: #19231f;
+      --muted: #68756f;
+      --paper: #f5f3ed;
+      --panel: #fffefa;
+      --line: #d9ddd7;
+      --accent: #176b53;
+      --accent-soft: #dceee7;
+      --warn: #aa5c1c;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--paper); }
+    button, textarea { font: inherit; }
+    button { cursor: pointer; }
+    .shell { min-height: 100vh; display: grid; grid-template-columns: 290px 1fr; }
+    aside { padding: 24px 18px; background: #20342d; color: white; }
+    .brand { margin: 0 8px 24px; font-size: 1.2rem; letter-spacing: .02em; }
+    .eyebrow { color: #91b7aa; font-size: .72rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    #application-list { display: grid; gap: 8px; }
+    .application-card { width: 100%; padding: 14px; border: 1px solid #3d554c; border-radius: 10px; color: white; background: transparent; text-align: left; }
+    .application-card:hover, .application-card.active { background: #315146; border-color: #7ca899; }
+    .application-card strong, .application-card span { display: block; }
+    .application-card span { margin-top: 4px; color: #bbcdc6; font-size: .84rem; }
+    .status { display: inline-flex; width: fit-content; margin-top: 10px; padding: 3px 7px; border-radius: 999px; background: #466a5d; color: white; font-size: .7rem; text-transform: uppercase; }
+    main { min-width: 0; padding: 34px clamp(22px, 4vw, 56px) 56px; }
+    .topline { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+    h1 { max-width: 780px; margin: 6px 0 8px; font-family: Georgia, serif; font-size: clamp(2rem, 4vw, 3.4rem); line-height: 1.02; }
+    .summary { max-width: 760px; color: var(--muted); line-height: 1.55; }
+    .workflow { min-width: 170px; padding: 10px 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--muted); font-size: .84rem; }
+    .workflow.busy { border-color: var(--accent); color: var(--accent); }
+    .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(310px, .75fr); gap: 18px; margin-top: 24px; }
+    .panel { padding: 20px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 3px 15px #1c35280d; }
+    .panel h2 { margin: 0 0 14px; font-size: .86rem; letter-spacing: .08em; text-transform: uppercase; }
+    .requirements { display: grid; gap: 8px; }
+    .requirement { padding: 12px; border-left: 3px solid var(--accent); background: var(--accent-soft); }
+    .requirement strong, .requirement small { display: block; }
+    .requirement small { margin-top: 4px; color: #486158; line-height: 1.4; }
+    textarea { width: 100%; min-height: 105px; padding: 12px; resize: vertical; border: 1px solid var(--line); border-radius: 8px; background: white; color: var(--ink); }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+    .primary, .secondary, .quiet { padding: 9px 13px; border-radius: 7px; border: 1px solid var(--accent); }
+    .primary { background: var(--accent); color: white; }
+    .secondary { background: white; color: var(--accent); }
+    .quiet { border-color: var(--line); background: white; color: var(--ink); }
+    .documents { display: grid; gap: 18px; margin-top: 18px; }
+    .document-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .document-header h2 { margin: 0; font-family: Georgia, serif; font-size: 1.45rem; }
+    .paragraph { margin-top: 14px; padding: 15px; border: 1px solid var(--line); border-radius: 9px; background: white; }
+    .paragraph p { margin: 0; line-height: 1.55; }
+    .provenance { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); color: var(--muted); font-size: .76rem; }
+    .provenance code { color: var(--accent); }
+    .paragraph-actions { display: flex; gap: 7px; margin-top: 10px; }
+    .paragraph-actions button { padding: 5px 8px; border: 0; border-radius: 5px; background: var(--accent-soft); color: var(--accent); font-size: .76rem; }
+    .empty { padding: 28px; border: 1px dashed var(--line); border-radius: 10px; color: var(--muted); text-align: center; }
+    #verification { margin-top: 16px; }
+    .claim { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: .84rem; }
+    .claim b { color: var(--accent); }
+    .claim.needs_review b { color: var(--warn); }
+    dialog { max-width: 650px; padding: 22px; border: 0; border-radius: 12px; box-shadow: 0 20px 70px #0004; }
+    dialog::backdrop { background: #13241e99; }
+    @media (max-width: 850px) {
+      .shell { grid-template-columns: 1fr; }
+      aside { padding: 16px; }
+      #application-list { grid-template-columns: repeat(3, minmax(190px, 1fr)); overflow-x: auto; }
+      .grid { grid-template-columns: 1fr; }
+      .topline { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><span class="eyebrow">MCP App</span><br>Application Studio</div>
+      <div id="application-list" aria-label="Applications"></div>
+    </aside>
+    <main>
+      <div class="topline">
+        <div>
+          <div class="eyebrow" id="organization">Select an application</div>
+          <h1 id="title">Application Studio</h1>
+          <div class="summary" id="summary">Loading the application workspace…</div>
+        </div>
+        <div class="workflow" id="workflow">Ready</div>
+      </div>
+      <div class="grid">
+        <section class="panel">
+          <h2>Target requirements</h2>
+          <div class="requirements" id="requirements"></div>
+        </section>
+        <section class="panel">
+          <h2>Application constraints</h2>
+          <textarea id="constraints" aria-label="Additional constraints"></textarea>
+          <div class="actions">
+            <button class="secondary" id="save-constraints">Save constraints</button>
+            <button class="primary" id="generate">Generate CV and cover letter</button>
+          </div>
+        </section>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="verify">Verify claims</button>
+        <button class="secondary" id="ready">Mark ready</button>
+        <button class="quiet" id="regenerate">Regenerate</button>
+      </div>
+      <section id="verification"></section>
+      <section class="documents" id="documents"></section>
+    </main>
+  </div>
+  <dialog id="source-dialog">
+    <h2>Source paragraph</h2>
+    <p id="source-text"></p>
+    <form method="dialog"><button class="primary">Close</button></form>
+  </dialog>
+  <script>
+    const demoApplications = [
+      {id: "application-northstar", organization: "Northstar Institute", title: "MSc Applied Machine Intelligence", target_type: "program", status: "generated"},
+      {id: "application-meridian", organization: "Meridian Polytechnic", title: "Master Autonomous Systems", target_type: "program", status: "in_progress"},
+      {id: "application-lattice", organization: "Lattice Cloud", title: "Backend Platform Engineer", target_type: "job", status: "draft"}
+    ];
+
+    const HostAdapter = (() => {
+      const pending = new Map();
+      const requestId = () => crypto.randomUUID?.() || `request-${Date.now()}-${Math.random()}`;
+      window.addEventListener("message", event => {
+        if (event.source !== window.parent || !event.data?.request_id) return;
+        const request = pending.get(event.data.request_id);
+        if (!request) return;
+        pending.delete(event.data.request_id);
+        event.data.error ? request.reject(new Error(event.data.error)) : request.resolve(event.data.result);
+      });
+      const post = message => new Promise((resolve, reject) => {
+        pending.set(message.request_id, {resolve, reject});
+        window.parent.postMessage(message, "*");
+        setTimeout(() => {
+          if (!pending.has(message.request_id)) return;
+          pending.delete(message.request_id);
+          reject(new Error("No MCP host response"));
+        }, 1500);
+      });
+      return {
+        async callTool(name, args = {}) {
+          if (window.mcpHost?.callTool) return window.mcpHost.callTool(name, args);
+          if (window.openai?.callTool) return window.openai.callTool(name, args);
+          return post({type: "call_tool", request_id: requestId(), name, arguments: args});
+        },
+        sendUserMessage(message, context) {
+          const payload = {type: "send_user_message", request_id: requestId(), message, context};
+          if (window.mcpHost?.sendUserMessage) return window.mcpHost.sendUserMessage(payload);
+          window.parent.postMessage(payload, "*");
+          return payload;
+        }
+      };
+    })();
+
+    let applications = demoApplications;
+    let current = null;
+    const byId = id => document.getElementById(id);
+    const resultBody = result => result?.structuredContent || result?.structured_content || result;
+    const setWorkflow = (message, busy = false) => {
+      byId("workflow").textContent = message;
+      byId("workflow").classList.toggle("busy", busy);
+    };
+
+    function fallbackDetail(id) {
+      const summary = applications.find(item => item.id === id) || applications[0];
+      const backend = summary.id === "application-lattice";
+      return {
+        application: {id: summary.id, status: summary.status, constraints: {emphasis_requirement_ids: [], excluded_topics: [], tone: "direct and specific", notes: backend ? "Prefer production reliability evidence." : "Connect experience to the target."}, generated_documents: []},
+        target: {organization: summary.organization, title: summary.title, summary: backend ? "Build observable Python services and distributed event-processing infrastructure." : "A focused program combining practical systems and careful evaluation.", requirements: backend ? [{id: "backend-python", label: "Python backend development", details: "Production Python and API design experience."}, {id: "distributed-systems", label: "Distributed systems", details: "Queues, events, and failure handling."}] : [{id: "research-methods", label: "Research methods", details: "Experimental rigor and documented evaluation."}, {id: "software-engineering", label: "Software engineering", details: "Reliable, well-tested implementation."}]},
+        source_documents: []
+      };
+    }
+
+    async function invoke(name, args, fallback) {
+      try {
+        return resultBody(await HostAdapter.callTool(name, args));
+      } catch (error) {
+        console.info(`Using standalone fixture for ${name}:`, error.message);
+        return fallback;
+      }
+    }
+
+    function renderList() {
+      byId("application-list").innerHTML = applications.map(item => `
+        <button class="application-card ${current?.application.id === item.id ? "active" : ""}" data-id="${item.id}">
+          <strong>${item.organization}</strong><span>${item.title}</span><span class="status">${item.status.replaceAll("_", " ")}</span>
+        </button>`).join("");
+      document.querySelectorAll(".application-card").forEach(card => card.addEventListener("click", () => selectApplication(card.dataset.id)));
+    }
+
+    function renderCurrent() {
+      const {application, target} = current;
+      byId("organization").textContent = `${target.organization} · ${application.status.replaceAll("_", " ")}`;
+      byId("title").textContent = target.title;
+      byId("summary").textContent = target.summary;
+      byId("constraints").value = application.constraints.notes;
+      byId("requirements").innerHTML = target.requirements.map(requirement => `<div class="requirement"><strong>${requirement.label}</strong><small>${requirement.details}</small></div>`).join("");
+      renderDocuments(application.generated_documents);
+      renderList();
+    }
+
+    function renderDocuments(documents = []) {
+      if (!documents.length) {
+        byId("documents").innerHTML = '<div class="empty">No generated documents yet. Add a constraint, then generate the dossier.</div>';
+        return;
+      }
+      byId("documents").innerHTML = documents.map(documentItem => `
+        <article class="panel">
+          <div class="document-header"><h2>${documentItem.document_type === "resume" ? "CV preview" : "Cover letter preview"}</h2><span class="status">${documentItem.paragraphs.length} sourced paragraphs</span></div>
+          ${documentItem.paragraphs.map(paragraph => `
+            <div class="paragraph">
+              <p>${paragraph.text}</p>
+              <div class="provenance">Source <code>${paragraph.source_file}#${paragraph.source_paragraph_id}</code><br>Criteria: ${paragraph.criteria_covered.join(", ") || "contextual"} · ${paragraph.transformation}</div>
+              <div class="paragraph-actions">
+                <button data-source="${paragraph.source_paragraph_id}">View source</button>
+                <button data-revise="${paragraph.id}" data-document="${documentItem.document_type}">Request revision in Vibe</button>
+              </div>
+            </div>`).join("")}
+        </article>`).join("");
+      document.querySelectorAll("[data-source]").forEach(button => button.addEventListener("click", () => showSource(button.dataset.source)));
+      document.querySelectorAll("[data-revise]").forEach(button => button.addEventListener("click", () => requestRevision(button.dataset.document, button.dataset.revise)));
+    }
+
+    async function selectApplication(id) {
+      setWorkflow("Loading application…", true);
+      current = await invoke("get_application", {application_id: id}, fallbackDetail(id));
+      renderCurrent();
+      setWorkflow("Ready");
+    }
+
+    function showSource(paragraphId) {
+      const paragraph = current.source_documents.flatMap(source => source.paragraphs).find(item => item.id === paragraphId);
+      byId("source-text").textContent = paragraph?.text || `Source ${paragraphId} is available through the connected MCP host.`;
+      byId("source-dialog").showModal();
+    }
+
+    function requestRevision(documentType, paragraphId) {
+      HostAdapter.sendUserMessage(
+        "Revise the selected paragraph and diagnose whether the general selection rule should change.",
+        {application_id: current.application.id, document_type: documentType, paragraph_id: paragraphId}
+      );
+      setWorkflow("Revision request sent to Vibe");
+    }
+
+    async function saveConstraints() {
+      setWorkflow("Saving constraints…", true);
+      const constraints = {...current.application.constraints, notes: byId("constraints").value};
+      current = await invoke("save_application_constraints", {application_id: current.application.id, constraints}, {...current, application: {...current.application, constraints}});
+      renderCurrent();
+      setWorkflow("Constraints saved");
+    }
+
+    async function generate() {
+      setWorkflow("Selecting sourced paragraphs…", true);
+      const result = await invoke("generate_application", {application_id: current.application.id}, {application: current.application, documents: current.application.generated_documents});
+      current.application = result.application;
+      current.application.generated_documents = result.documents;
+      renderCurrent();
+      setWorkflow("CV and cover letter generated");
+    }
+
+    async function markReady() {
+      setWorkflow("Updating status…", true);
+      current = await invoke("update_application_status", {application_id: current.application.id, status: "ready"}, {...current, application: {...current.application, status: "ready"}});
+      renderCurrent();
+      setWorkflow("Marked ready");
+    }
+
+    async function verify() {
+      setWorkflow("Checking claims against sources…", true);
+      const result = await invoke("verify_claims", {application_id: current.application.id}, {verifications: []});
+      byId("verification").innerHTML = `<section class="panel"><h2>Claim verification</h2>${result.verifications.length ? result.verifications.map(item => `<div class="claim ${item.status}"><b>${item.status.replaceAll("_", " ")}</b> — ${item.claim}<br><small>${item.explanation}</small></div>`).join("") : '<div class="empty">No factual claims in the current generated documents.</div>'}</section>`;
+      setWorkflow("Verification complete");
+    }
+
+    byId("save-constraints").addEventListener("click", saveConstraints);
+    byId("generate").addEventListener("click", generate);
+    byId("regenerate").addEventListener("click", generate);
+    byId("ready").addEventListener("click", markReady);
+    byId("verify").addEventListener("click", verify);
+
+    (async () => {
+      const listed = await invoke("list_applications", {}, {applications: demoApplications});
+      applications = listed.applications;
+      renderList();
+      await selectApplication(applications[0].id);
+    })();
+  </script>
+</body>
+</html>

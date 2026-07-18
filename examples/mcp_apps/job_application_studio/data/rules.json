@@ -1,0 +1,29 @@
+[
+  {
+    "id": "prefer-reproducible-research",
+    "description": "Prefer a reproducible experiment for research-oriented targets.",
+    "target_keywords": ["research"],
+    "source_paragraph_ids": ["cv-research-01"],
+    "transformation": "selected",
+    "added_claim": null,
+    "enabled": true
+  },
+  {
+    "id": "prefer-robot-perception",
+    "description": "Prefer perception work for robotics and autonomous systems.",
+    "target_keywords": ["robotics", "autonomous"],
+    "source_paragraph_ids": ["cv-robotics-01"],
+    "transformation": "selected",
+    "added_claim": null,
+    "enabled": true
+  },
+  {
+    "id": "imperfect-backend-project-rule",
+    "description": "Imperfect demo rule: treats any software project as backend evidence and selects a mobile project.",
+    "target_keywords": ["backend"],
+    "source_paragraph_ids": ["cv-mobile-01"],
+    "transformation": "rule_augmented",
+    "added_claim": "Reduced backend request latency by 40%.",
+    "enabled": true
+  }
+]

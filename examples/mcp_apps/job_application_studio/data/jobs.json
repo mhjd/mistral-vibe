@@ -1,0 +1,77 @@
+[
+  {
+    "id": "target-ai-research-master",
+    "target_type": "program",
+    "organization": "Northstar Institute",
+    "title": "MSc Applied Machine Intelligence",
+    "summary": "A research-oriented program combining robust machine learning, evaluation, and responsible deployment.",
+    "requirements": [
+      {
+        "id": "research-methods",
+        "label": "Research methods",
+        "details": "Evidence of experimental rigor and interest in research.",
+        "keywords": ["research", "evaluation", "reproducibility"]
+      },
+      {
+        "id": "machine-learning",
+        "label": "Machine learning foundations",
+        "details": "Practical and theoretical exposure to machine learning.",
+        "keywords": ["machine-learning", "python", "data"]
+      },
+      {
+        "id": "responsible-ai",
+        "label": "Responsible AI",
+        "details": "Attention to reliability, interpretability, and impact.",
+        "keywords": ["reliability", "interpretability", "evaluation"]
+      }
+    ]
+  },
+  {
+    "id": "target-autonomous-systems-master",
+    "target_type": "program",
+    "organization": "Meridian Polytechnic",
+    "title": "Master Autonomous Systems",
+    "summary": "An applied program in perception, robotics, and dependable autonomous software.",
+    "requirements": [
+      {
+        "id": "robotics",
+        "label": "Robotics experience",
+        "details": "Hands-on experience with perception or autonomous systems.",
+        "keywords": ["robotics", "perception", "computer-vision"]
+      },
+      {
+        "id": "software-engineering",
+        "label": "Software engineering",
+        "details": "Ability to build and test reliable software.",
+        "keywords": ["software", "python", "testing", "reliability"]
+      }
+    ]
+  },
+  {
+    "id": "target-backend-platform-job",
+    "target_type": "job",
+    "organization": "Lattice Cloud",
+    "title": "Backend Platform Engineer",
+    "summary": "Build observable Python services and distributed event-processing infrastructure for a growing platform.",
+    "requirements": [
+      {
+        "id": "backend-python",
+        "label": "Python backend development",
+        "details": "Production Python and API design experience.",
+        "keywords": ["backend", "python", "api"]
+      },
+      {
+        "id": "distributed-systems",
+        "label": "Distributed systems",
+        "details": "Experience with queues, events, and failure handling.",
+        "keywords": ["distributed", "events", "reliability"]
+      },
+      {
+        "id": "operational-quality",
+        "label": "Operational quality",
+        "details": "Testing, observability, and pragmatic documentation.",
+        "keywords": ["testing", "observability", "documentation"]
+      }
+    ]
+  }
+]

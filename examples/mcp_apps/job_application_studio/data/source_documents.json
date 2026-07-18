@@ -1,0 +1,88 @@
+[
+  {
+    "id": "resume-2025",
+    "document_type": "resume",
+    "title": "Resume archive — 2025",
+    "file": "source_documents/resume_2025.md",
+    "paragraphs": [
+      {
+        "id": "cv-research-01",
+        "text": "Built a reproducible evaluation harness for small vision models, recording dataset versions, seeds, and error analyses.",
+        "criteria_tags": ["research", "evaluation", "reproducibility", "python"],
+        "claims": ["Built a reproducible evaluation harness for small vision models."]
+      },
+      {
+        "id": "cv-mobile-01",
+        "text": "Developed an offline-first mobile companion for community workshops and coordinated usability tests with four volunteers.",
+        "criteria_tags": ["mobile", "software", "testing", "teamwork"],
+        "claims": ["Coordinated usability tests with four volunteers."]
+      },
+      {
+        "id": "cv-backend-01",
+        "text": "Designed a Python event-processing service with idempotent consumers, retry policies, structured logs, and contract tests.",
+        "criteria_tags": ["backend", "python", "distributed", "events", "reliability", "testing", "observability"],
+        "claims": ["Designed a Python event-processing service with idempotent consumers."]
+      }
+    ]
+  },
+  {
+    "id": "resume-2024",
+    "document_type": "resume",
+    "title": "Resume archive — 2024",
+    "file": "source_documents/resume_2024.md",
+    "paragraphs": [
+      {
+        "id": "cv-robotics-01",
+        "text": "Prototyped a tabletop robot perception pipeline and documented failure cases caused by lighting and occlusion.",
+        "criteria_tags": ["robotics", "perception", "computer-vision", "evaluation", "documentation"],
+        "claims": ["Documented perception failures caused by lighting and occlusion."]
+      },
+      {
+        "id": "cv-data-01",
+        "text": "Compared baseline classifiers on a synthetic public dataset and explained the precision-recall trade-offs to a mixed audience.",
+        "criteria_tags": ["machine-learning", "data", "evaluation", "communication"],
+        "claims": ["Compared baseline classifiers on a synthetic public dataset."]
+      }
+    ]
+  },
+  {
+    "id": "letter-research",
+    "document_type": "cover_letter",
+    "title": "Research program letter archive",
+    "file": "source_documents/letter_research.md",
+    "paragraphs": [
+      {
+        "id": "letter-research-01",
+        "text": "I am seeking a program where careful experimentation is treated as a first-class skill, so I can turn practical model-building experience into a rigorous research practice.",
+        "criteria_tags": ["research", "evaluation", "reproducibility"],
+        "claims": []
+      },
+      {
+        "id": "letter-research-02",
+        "text": "The combination of machine learning foundations and responsible deployment matches my goal of building systems whose limitations can be explained and tested.",
+        "criteria_tags": ["machine-learning", "interpretability", "reliability"],
+        "claims": []
+      }
+    ]
+  },
+  {
+    "id": "letter-engineering",
+    "document_type": "cover_letter",
+    "title": "Engineering letter archive",
+    "file": "source_documents/letter_engineering.md",
+    "paragraphs": [
+      {
+        "id": "letter-engineering-01",
+        "text": "I enjoy making service behavior explicit through small interfaces, contract tests, and operational documentation that helps a team respond to failures.",
+        "criteria_tags": ["backend", "testing", "reliability", "documentation"],
+        "claims": []
+      },
+      {
+        "id": "letter-engineering-02",
+        "text": "I want to deepen my work on event-driven systems where correctness depends on clear retry, observability, and ownership boundaries.",
+        "criteria_tags": ["distributed", "events", "observability", "software"],
+        "claims": []
+      }
+    ]
+  }
+]
