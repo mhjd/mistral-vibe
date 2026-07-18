@@ -2241,19 +2241,22 @@ class VibeApp(App):  # noqa: PLR0904
         self, events: AsyncGenerator[BaseEvent]
     ) -> None:
         async for event in events:
-            self._narrator_manager.on_turn_event(event)
-            if isinstance(event, WaitingForInputEvent):
-                await self._remove_loading_widget()
-            elif isinstance(event, HookStartEvent):
-                await self._ensure_loading_widget(f"Running hook {event.hook_name}")
-            elif self._loading_widget is None and is_progress_event(event):
-                await self._ensure_loading_widget()
-            if self.event_handler:
-                await self.event_handler.handle_event(
-                    event, loading_widget=self._loading_widget
-                )
-            if self._mcp_app_controller is not None:
-                self._mcp_app_controller.observe_event(event)
+            await self.handle_mcp_app_event(event)
+
+    async def handle_mcp_app_event(self, event: BaseEvent) -> None:
+        self._narrator_manager.on_turn_event(event)
+        if isinstance(event, WaitingForInputEvent):
+            await self._remove_loading_widget()
+        elif isinstance(event, HookStartEvent):
+            await self._ensure_loading_widget(f"Running hook {event.hook_name}")
+        elif self._loading_widget is None and is_progress_event(event):
+            await self._ensure_loading_widget()
+        if self.event_handler:
+            await self.event_handler.handle_event(
+                event, loading_widget=self._loading_widget
+            )
+        if self._mcp_app_controller is not None:
+            self._mcp_app_controller.observe_event(event)
 
     async def _handle_agent_loop_turn(
         self,
@@ -4608,10 +4611,22 @@ def run_textual_ui(
         plan_offer_gateway=plan_offer_gateway,
         vscode_extension_promo=vscode_extension_promo,
     )
-    if mcp_app_controller is not None:
-        app.set_mcp_app_controller(mcp_app_controller)
+    controller = mcp_app_controller or _build_mcp_app_controller(agent_loop, app)
+    app.set_mcp_app_controller(controller)
     session_id = asyncio.run(_run_app_with_cleanup(app))
 
     print_session_resume_message(
         session_id, agent_loop.stats, agent_loop.config.session_logging
+    )
+
+
+def _build_mcp_app_controller(agent_loop: AgentLoop, app: VibeApp) -> MCPAppController:
+    from vibe.cli.mcp_apps import MCPAppController
+    from vibe.core.mcp_apps import build_mcp_app_callbacks
+
+    callbacks = build_mcp_app_callbacks(agent_loop, on_event=app.handle_mcp_app_event)
+    return MCPAppController(
+        resource_loader=agent_loop.read_mcp_app_resource,
+        call_tool=callbacks.call_tool,
+        send_user_message=callbacks.send_user_message,
     )

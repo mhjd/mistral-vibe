@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from vibe.cli.mcp_apps.models import MCPAppOpenRequest, MCPAppToolDescriptor
 from vibe.core.tools.remote import MCPTool
 from vibe.core.types import BaseEvent, ToolCallEvent, ToolResultEvent
@@ -36,7 +38,12 @@ class MCPAppToolEventCorrelator:
             return None
         resource_uri = tool_class.get_ui_resource_uri()
         server_name = tool_class.get_server_name()
-        if resource_uri is None or server_name is None or event.args is None:
+        if (
+            resource_uri is None
+            or urlsplit(resource_uri).scheme != "ui"
+            or server_name is None
+            or event.args is None
+        ):
             return None
         return MCPAppOpenRequest(
             tool=MCPAppToolDescriptor(

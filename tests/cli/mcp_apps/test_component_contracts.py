@@ -63,7 +63,10 @@ async def test_core_reader_and_callbacks_satisfy_controller_contracts() -> None:
     assert factory.initial_states[0].server_name == "studio"
     assert factory.initial_states[0].tool_arguments == {"candidate": "Ada"}
     assert factory.initial_states[0].tool_result == {"status": "ready"}
-    assert factory.call_tool_callbacks == [callbacks.call_tool]
+    tool_result = cast(
+        dict[str, object], await factory.call_tool_callbacks[0]("missing", {})
+    )
+    assert tool_result["tool_name"] == "studio_missing"
     assert factory.send_user_message_callbacks == [callbacks.send_user_message]
 
     await controller.aclose()

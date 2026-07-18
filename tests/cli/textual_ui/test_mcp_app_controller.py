@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import build_test_vibe_app
+from tests.conftest import build_test_agent_loop, build_test_vibe_app
 from tests.stubs.fake_mcp_app import FakeMCPAppHostFactory, FakeMCPAppResourceLoader
-from tests.stubs.fake_tool import FakeToolArgs, FakeToolResult
+from tests.stubs.fake_tool import FakeTool, FakeToolArgs, FakeToolResult
 from vibe.cli.mcp_apps import MCPAppController, MCPAppResource
+from vibe.cli.mcp_apps.models import ContextualSendUserMessage
+from vibe.cli.textual_ui.app import _build_mcp_app_controller
 from vibe.core.tools.mcp.tools import create_mcp_stdio_proxy_tool_class
 from vibe.core.tools.remote import RemoteTool
-from vibe.core.types import BaseEvent, ToolCallEvent, ToolResultEvent
+from vibe.core.types import BaseEvent, ToolCallEvent, ToolResultEvent, UserMessageEvent
 
 _RESOURCE_URI = "ui://studio/main"
 
@@ -92,6 +95,40 @@ async def test_textual_event_stream_opens_injected_controller() -> None:
 
 
 @pytest.mark.asyncio
+async def test_default_controller_uses_app_event_sink_and_existing_loop() -> None:
+    loop = build_test_agent_loop()
+    app = build_test_vibe_app(agent_loop=loop)
+    controller = _build_mcp_app_controller(loop, app)
+    app.set_mcp_app_controller(controller)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.event_handler is not None
+        with patch.object(
+            app.event_handler,
+            "handle_event",
+            AsyncMock(wraps=app.event_handler.handle_event),
+        ) as handle_event:
+            send_message = cast(
+                ContextualSendUserMessage, controller._send_user_message
+            )
+            result = await send_message(
+                "Review this paragraph", {"paragraph_id": "paragraph-1"}
+            )
+        await pilot.pause()
+
+    assert cast(dict[str, object], result)["status"] == "completed"
+    assert any(message.role == "user" for message in loop.messages)
+    user_events = [
+        call.args[0]
+        for call in handle_event.await_args_list
+        if isinstance(call.args[0], UserMessageEvent)
+    ]
+    assert len(user_events) == 1
+    await controller.aclose()
+
+
+@pytest.mark.asyncio
 async def test_textual_controller_error_becomes_user_notification() -> None:
     controller, _ = _controller(error=RuntimeError("resource unavailable"))
     app = build_test_vibe_app()
@@ -126,3 +163,50 @@ async def test_textual_shutdown_closes_active_host() -> None:
     assert factory.hosts[0].stop_calls == 1
     assert controller.active_session is None
     assert controller.pending_task_count == 0
+
+
+@pytest.mark.asyncio
+async def test_textual_stays_responsive_and_ignores_ordinary_tool() -> None:
+    loader = FakeMCPAppResourceLoader(
+        MCPAppResource(
+            uri=_RESOURCE_URI, mime_type="text/html", text="<main>Studio</main>"
+        )
+    )
+    loader.wait_until = asyncio.Event()
+    factory = FakeMCPAppHostFactory()
+    controller = MCPAppController(
+        resource_loader=loader,
+        call_tool=AsyncMock(return_value={}),
+        send_user_message=AsyncMock(return_value=None),
+        host_factory=factory,
+    )
+    app = build_test_vibe_app()
+    app.set_mcp_app_controller(controller)
+    ordinary_call = ToolCallEvent(
+        tool_call_id="ordinary",
+        tool_name="stub_tool",
+        tool_class=FakeTool,
+        args=FakeToolArgs(text="ordinary"),
+    )
+    ordinary_result = ToolResultEvent(
+        tool_call_id="ordinary",
+        tool_name="stub_tool",
+        tool_class=FakeTool,
+        result=FakeToolResult(),
+    )
+    call, result = _tool_events()
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await app._handle_agent_loop_events(_events(ordinary_call, ordinary_result))
+        assert loader.calls == []
+        await app._handle_agent_loop_events(_events(call, result))
+        responsive = asyncio.Event()
+        asyncio.get_running_loop().call_soon(responsive.set)
+        await asyncio.wait_for(responsive.wait(), timeout=0.1)
+        assert controller.pending_task_count == 1
+        loader.wait_until.set()
+        await _wait_for_controller(controller)
+
+    assert controller.active_session is not None
+    await controller.aclose()

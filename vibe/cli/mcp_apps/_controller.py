@@ -114,7 +114,9 @@ class MCPAppController:
                 host = self._host_factory(
                     app_html=resource.text,
                     initial_state=initial_state,
-                    call_tool=self._call_tool,
+                    call_tool=lambda tool_name, arguments: self._call_app_tool(
+                        request, tool_name, arguments
+                    ),
                     send_user_message=self._send_user_message,
                 )
             except Exception as e:
@@ -141,6 +143,15 @@ class MCPAppController:
                     logger.warning("Failed to stop replaced MCP App host", exc_info=e)
             self._last_error = None
             return active_session
+
+    async def _call_app_tool(
+        self, request: MCPAppOpenRequest, tool_name: str, arguments: dict[str, object]
+    ) -> object:
+        prefix = f"{request.tool.server_name}_"
+        published_name = (
+            tool_name if tool_name.startswith(prefix) else prefix + tool_name
+        )
+        return await self._call_tool(published_name, arguments)
 
     async def close(self) -> None:
         await self._cancel_observed_open()

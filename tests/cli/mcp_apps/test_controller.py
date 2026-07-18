@@ -139,7 +139,7 @@ async def test_host_receives_callbacks_with_name_alias_and_message_context() -> 
 
     assert result == {"echo": True}
     assert message_result == {"queued": True}
-    call_tool.assert_awaited_once_with("name_alias", {"value": 3})
+    call_tool.assert_awaited_once_with("studio_name_alias", {"value": 3})
     send_user_message.assert_awaited_once_with("Review this selection", context)
 
     await controller.aclose()
@@ -408,6 +408,34 @@ async def test_failed_tool_result_does_not_open_app() -> None:
             tool_name=tool_class.get_name(),
             tool_class=tool_class,
             error="tool failed",
+        )
+    )
+
+    assert not scheduled
+    assert loader.calls == []
+
+
+@pytest.mark.asyncio
+async def test_non_ui_resource_uri_does_not_schedule_open() -> None:
+    loader = FakeMCPAppResourceLoader(_resource())
+    factory = FakeMCPAppHostFactory()
+    controller = _controller(loader, factory)
+    tool_class = _mcp_tool_class(resource_uri="https://example.test/app")
+    controller.observe_event(
+        ToolCallEvent(
+            tool_call_id="invalid-uri",
+            tool_name=tool_class.get_name(),
+            tool_class=tool_class,
+            args=FakeToolArgs(),
+        )
+    )
+
+    scheduled = controller.observe_event(
+        ToolResultEvent(
+            tool_call_id="invalid-uri",
+            tool_name=tool_class.get_name(),
+            tool_class=tool_class,
+            result=FakeToolResult(),
         )
     )
 
