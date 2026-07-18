@@ -277,6 +277,7 @@ _BENIGN_TURN_ERRORS: tuple[type[Exception], ...] = (
 )
 
 if TYPE_CHECKING:
+    from vibe.cli.mcp_apps import MCPAppController
     from vibe.cli.textual_ui.widgets.connector_auth_app import ConnectorAuthApp
     from vibe.cli.textual_ui.widgets.mcp_app import MCPApp
     from vibe.cli.textual_ui.widgets.mcp_oauth_app import MCPOAuthApp
@@ -465,6 +466,7 @@ class VibeApp(App):  # noqa: PLR0904
     ENABLE_COMMAND_PALETTE = False
     CSS_PATH = "app.tcss"
     PAUSE_GC_ON_SCROLL: ClassVar[bool] = True
+    _mcp_app_controller: MCPAppController | None = None
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+c", "interrupt_or_quit", "Quit", show=False),
@@ -660,6 +662,18 @@ class VibeApp(App):  # noqa: PLR0904
             await self.event_handler.handle_event(
                 event, loading_widget=self._loading_widget
             )
+
+    async def _report_mcp_app_error(self, error: str) -> None:
+        self.notify(
+            f"Could not open MCP App: {error}",
+            severity="error",
+            markup=False,
+            timeout=10,
+        )
+
+    def set_mcp_app_controller(self, controller: MCPAppController) -> None:
+        self._mcp_app_controller = controller
+        controller.set_error_handler(self._report_mcp_app_error)
 
     def _maybe_show_feedback_bar(self) -> None:
         if self._feedback_bar_manager.should_show(self.agent_loop):
@@ -2238,6 +2252,8 @@ class VibeApp(App):  # noqa: PLR0904
                 await self.event_handler.handle_event(
                     event, loading_widget=self._loading_widget
                 )
+            if self._mcp_app_controller is not None:
+                self._mcp_app_controller.observe_event(event)
 
     async def _handle_agent_loop_turn(
         self,
@@ -3155,6 +3171,9 @@ class VibeApp(App):  # noqa: PLR0904
                 f"Session `{short_session_id(session.session_id)}` not found."
             )
 
+        if self._mcp_app_controller is not None:
+            await self._mcp_app_controller.close()
+
         self._emit_session_closed_for_active_session()
 
         loaded_messages, metadata = SessionLoader.load_session(session_path)
@@ -3280,6 +3299,8 @@ class VibeApp(App):  # noqa: PLR0904
 
     async def _clear_history(self, **kwargs: Any) -> None:
         try:
+            if self._mcp_app_controller is not None:
+                await self._mcp_app_controller.close()
             await self.agent_loop.clear_history()
             await self._reset_message_widgets()
 
@@ -3303,6 +3324,8 @@ class VibeApp(App):  # noqa: PLR0904
         on-screen widgets and posts a notice that implementation is starting. The
         approved plan is re-mounted so it stays visible in the discussion.
         """
+        if self._mcp_app_controller is not None:
+            await self._mcp_app_controller.close()
         await self._reset_message_widgets()
         if plan_file_path is not None:
             await self._mount_and_scroll(PlanFileMessage(file_path=plan_file_path))
@@ -4256,6 +4279,9 @@ class VibeApp(App):  # noqa: PLR0904
             await self._voice_manager.close()
         with suppress(Exception):
             await self._narrator_manager.close()
+        if self._mcp_app_controller is not None:
+            with suppress(Exception):
+                await self._mcp_app_controller.aclose()
         with suppress(Exception):
             await self.agent_loop.aclose()
         try:
@@ -4563,6 +4589,8 @@ def run_textual_ui(
     agent_loop: AgentLoop,
     update_cache_repository: UpdateCacheRepository,
     startup: StartupOptions | None = None,
+    *,
+    mcp_app_controller: MCPAppController | None = None,
 ) -> None:
     update_notifier = PyPIUpdateGateway(project_name="mistral-vibe")
     plan_offer_gateway = HttpWhoAmIGateway(base_url=agent_loop.config.console_base_url)
@@ -4580,6 +4608,8 @@ def run_textual_ui(
         plan_offer_gateway=plan_offer_gateway,
         vscode_extension_promo=vscode_extension_promo,
     )
+    if mcp_app_controller is not None:
+        app.set_mcp_app_controller(mcp_app_controller)
     session_id = asyncio.run(_run_app_with_cleanup(app))
 
     print_session_resume_message(
