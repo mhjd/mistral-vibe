@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import codecs
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable
 from contextlib import aclosing, suppress
 from dataclasses import dataclass
 from enum import StrEnum, auto
@@ -2257,6 +2257,15 @@ class VibeApp(App):  # noqa: PLR0904
             )
         if self._mcp_app_controller is not None:
             self._mcp_app_controller.observe_event(event)
+
+    async def run_mcp_app_callback[T](self, callback: Awaitable[T]) -> T:
+        try:
+            return await callback
+        finally:
+            await self._remove_loading_widget()
+            if self.event_handler:
+                await self.event_handler.finalize_streaming()
+                self.event_handler.escalate_unresolved_errors()
 
     async def _handle_agent_loop_turn(
         self,
@@ -4627,6 +4636,10 @@ def _build_mcp_app_controller(agent_loop: AgentLoop, app: VibeApp) -> MCPAppCont
     callbacks = build_mcp_app_callbacks(agent_loop, on_event=app.handle_mcp_app_event)
     return MCPAppController(
         resource_loader=agent_loop.read_mcp_app_resource,
-        call_tool=callbacks.call_tool,
-        send_user_message=callbacks.send_user_message,
+        call_tool=lambda tool_name, arguments: app.run_mcp_app_callback(
+            callbacks.call_tool(tool_name, arguments)
+        ),
+        send_user_message=lambda message, context: app.run_mcp_app_callback(
+            callbacks.send_user_message(message, context)
+        ),
     )

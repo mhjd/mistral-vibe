@@ -7,12 +7,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tests.conftest import build_test_agent_loop, build_test_vibe_app
+from tests.conftest import (
+    build_test_agent_loop,
+    build_test_vibe_app,
+    build_test_vibe_config,
+)
 from tests.stubs.fake_mcp_app import FakeMCPAppHostFactory, FakeMCPAppResourceLoader
 from tests.stubs.fake_tool import FakeTool, FakeToolArgs, FakeToolResult
 from vibe.cli.mcp_apps import MCPAppController, MCPAppResource
 from vibe.cli.mcp_apps.models import ContextualSendUserMessage
 from vibe.cli.textual_ui.app import _build_mcp_app_controller
+from vibe.core.mcp_apps import MCPAppCallTool
+from vibe.core.tools.base import ToolPermission
 from vibe.core.tools.mcp.tools import create_mcp_stdio_proxy_tool_class
 from vibe.core.tools.remote import RemoteTool
 from vibe.core.types import BaseEvent, ToolCallEvent, ToolResultEvent, UserMessageEvent
@@ -125,6 +131,54 @@ async def test_default_controller_uses_app_event_sink_and_existing_loop() -> Non
         if isinstance(call.args[0], UserMessageEvent)
     ]
     assert len(user_events) == 1
+    await controller.aclose()
+
+
+@pytest.mark.asyncio
+async def test_mcp_app_tool_call_finishes_textual_operation() -> None:
+    loop = build_test_agent_loop(
+        config=build_test_vibe_config(
+            enabled_tools=["stub_tool"],
+            tools={"stub_tool": {"permission": ToolPermission.ALWAYS.value}},
+        )
+    )
+    loop.tool_manager._all_tools["stub_tool"] = FakeTool
+    app = build_test_vibe_app(agent_loop=loop)
+    controller = _build_mcp_app_controller(loop, app)
+    app.set_mcp_app_controller(controller)
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.event_handler is not None
+        with patch.object(
+            app.event_handler,
+            "handle_event",
+            AsyncMock(wraps=app.event_handler.handle_event),
+        ) as handle_event:
+            call_tool = cast(MCPAppCallTool, controller._call_tool)
+            result = await call_tool("stub_tool", {"text": "selected"})
+        await pilot.pause()
+
+        terminal_events = [
+            call.args[0]
+            for call in handle_event.await_args_list
+            if isinstance(call.args[0], ToolResultEvent)
+        ]
+        active_tool_tasks = [
+            task
+            for task in asyncio.all_tasks()
+            if "_execute_tool_to_queue" in repr(task.get_coro())
+            or "_signal_when_all_done" in repr(task.get_coro())
+        ]
+        assert cast(dict[str, object], result)["status"] == "success"
+        assert len(terminal_events) == 1
+        assert app.event_handler.tool_calls == {}
+        assert app._loading_widget is None
+        assert not loop.operation_active
+        assert active_tool_tasks == []
+        assert controller.pending_task_count == 0
+        assert not app._agent_running
+
     await controller.aclose()
 
 
