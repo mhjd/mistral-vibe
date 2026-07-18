@@ -6,12 +6,23 @@ from typing import Protocol
 from vibe.cli.mcp_apps.models import (
     CallTool,
     MCPAppInitialState,
-    MCPAppResource,
     MCPAppSession,
     SendUserMessage,
 )
 
-type MCPAppResourceLoader = Callable[[str, str], Awaitable[MCPAppResource]]
+
+class MCPAppResourceData(Protocol):
+    @property
+    def uri(self) -> object: ...
+
+    @property
+    def mime_type(self) -> str | None: ...
+
+    @property
+    def text(self) -> str: ...
+
+
+type MCPAppResourceLoader = Callable[[str, str], Awaitable[MCPAppResourceData]]
 type MCPAppErrorHandler = Callable[[str], Awaitable[None]]
 
 

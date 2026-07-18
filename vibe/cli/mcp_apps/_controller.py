@@ -12,13 +12,13 @@ from vibe.cli.mcp_apps._port import (
     MCPAppErrorHandler,
     MCPAppHostFactory,
     MCPAppHostPort,
+    MCPAppResourceData,
     MCPAppResourceLoader,
 )
 from vibe.cli.mcp_apps.models import (
     CallTool,
     MCPAppInitialState,
     MCPAppOpenRequest,
-    MCPAppResource,
     MCPAppSession,
     SendUserMessage,
 )
@@ -44,7 +44,7 @@ class MCPAppHostStartError(MCPAppControllerError):
 @dataclass(frozen=True, slots=True)
 class MCPAppActiveSession:
     request: MCPAppOpenRequest
-    resource: MCPAppResource
+    resource: MCPAppResourceData
     host_session: MCPAppSession
     host: MCPAppHostPort
 
@@ -161,7 +161,7 @@ class MCPAppController:
         self._closed = True
         await self.close()
 
-    async def _load_resource(self, request: MCPAppOpenRequest) -> MCPAppResource:
+    async def _load_resource(self, request: MCPAppOpenRequest) -> MCPAppResourceData:
         try:
             resource = await self._resource_loader(
                 request.tool.server_name, request.tool.resource_uri
@@ -206,10 +206,10 @@ class MCPAppController:
             self._open_task = None
 
 
-def _validate_resource(resource: MCPAppResource, expected_uri: str) -> None:
-    if resource.uri != expected_uri:
+def _validate_resource(resource: MCPAppResourceData, expected_uri: str) -> None:
+    if str(resource.uri) != expected_uri:
         raise MCPAppResourceError("MCP App resource URI does not match the request")
-    media_type = resource.mime_type.partition(";")[0].strip().lower()
+    media_type = (resource.mime_type or "").partition(";")[0].strip().lower()
     if media_type not in {"text/html", "application/xhtml+xml"}:
         raise MCPAppResourceError("MCP App resource must contain HTML text")
     if not resource.text.strip():

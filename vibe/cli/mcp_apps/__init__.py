@@ -13,6 +13,7 @@ from vibe.cli.mcp_apps._port import (
     MCPAppErrorHandler,
     MCPAppHostFactory,
     MCPAppHostPort,
+    MCPAppResourceData,
     MCPAppResourceLoader,
 )
 from vibe.cli.mcp_apps.assets import load_test_app_html
@@ -37,6 +38,7 @@ __all__ = [
     "MCPAppInitialState",
     "MCPAppOpenRequest",
     "MCPAppResource",
+    "MCPAppResourceData",
     "MCPAppResourceError",
     "MCPAppResourceLoader",
     "MCPAppSession",

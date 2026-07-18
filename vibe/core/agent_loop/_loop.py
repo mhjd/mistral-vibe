@@ -210,6 +210,7 @@ if TYPE_CHECKING:
     from vibe.core.teleport.teleport import TeleportService
     from vibe.core.teleport.types import TeleportPushResponseEvent, TeleportYieldEvent
     from vibe.core.tools.connectors.connector_registry import ConnectorRegistry
+    from vibe.core.tools.mcp.models import MCPAppResource
     from vibe.core.tools.mcp.pool import MCPConnectionPool
     from vibe.core.tools.mcp.registry import MCPRegistry
     from vibe.core.tools.mcp_sampling import MCPSamplingHandler
@@ -1011,6 +1012,19 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
                     yield event
             finally:
                 self.checkpoint_recorder.seal_turn()
+
+    @requires_init
+    async def read_mcp_app_resource(
+        self, server_alias: str, resource_uri: str
+    ) -> MCPAppResource:
+        self._ensure_open()
+        if self._mcp_pool is None:
+            from vibe.core.tools.mcp.resources import MCPResourceSessionError
+
+            raise MCPResourceSessionError("MCP connection pool is unavailable")
+        return await self._mcp_pool.read_resource(
+            server_alias=server_alias, resource_uri=resource_uri
+        )
 
     @property
     def teleport_service(self) -> TeleportService:
