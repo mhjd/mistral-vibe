@@ -136,6 +136,59 @@ async def test_imperfect_rule_selects_mobile_project_for_backend_demo(
 
 
 @pytest.mark.asyncio
+async def test_vibe_selection_is_stored_and_used_with_provenance(
+    storage: StudioStorage,
+) -> None:
+    selection = await storage.apply_document_selection(
+        "application-lattice",
+        resume_paragraph_ids=["cv-backend-01", "cv-research-01"],
+        cover_letter_paragraph_ids=["letter-engineering-01", "letter-engineering-02"],
+        rationale="Use direct backend and reliability evidence.",
+    )
+
+    detail = await storage.get_application("application-lattice")
+    generated = await storage.generate_application("application-lattice")
+    resume = next(
+        document
+        for document in generated.documents
+        if document.document_type is DocumentType.RESUME
+    )
+    letter = next(
+        document
+        for document in generated.documents
+        if document.document_type is DocumentType.COVER_LETTER
+    )
+
+    assert selection.application_id == "application-lattice"
+    assert detail.document_selection is not None
+    assert detail.document_selection.resume_paragraph_ids == [
+        "cv-backend-01",
+        "cv-research-01",
+    ]
+    assert [item.source_paragraph_id for item in resume.paragraphs] == [
+        "cv-backend-01",
+        "cv-research-01",
+    ]
+    assert [item.source_paragraph_id for item in letter.paragraphs] == [
+        "letter-engineering-01",
+        "letter-engineering-02",
+    ]
+    assert all(item.source_file for item in resume.paragraphs + letter.paragraphs)
+
+
+@pytest.mark.asyncio
+async def test_vibe_selection_rejects_unknown_paragraph(storage: StudioStorage) -> None:
+    with pytest.raises(
+        StudioNotFoundError, match="Unknown source paragraph id: missing"
+    ):
+        await storage.apply_document_selection(
+            "application-lattice",
+            resume_paragraph_ids=["missing"],
+            cover_letter_paragraph_ids=["letter-engineering-01"],
+        )
+
+
+@pytest.mark.asyncio
 async def test_claim_verification_flags_rule_added_claim(
     storage: StudioStorage,
 ) -> None:
@@ -164,6 +217,7 @@ async def test_mcp_exposes_tools_ui_resource_and_metadata() -> None:
         "save_application_constraints",
         "update_application_status",
         "generate_application",
+        "apply_document_selection",
         "verify_claims",
     }
     assert tool_by_name["open_application_studio"].meta == {
@@ -191,6 +245,11 @@ async def test_ui_emits_structured_revision_message() -> None:
     assert "document_type: documentType" in html
     assert "paragraph_id: paragraphId" in html
     assert "Request revision in Vibe" in html
+    assert "Generate with Vibe" in html
+    assert "application_studio_apply_document_selection" in html
+    assert "source_filename: source.file" in html
+    assert "criteria_tags: paragraph.criteria_tags" in html
+    assert "Do not edit source code or rules.json" in html
 
 
 @pytest.mark.asyncio

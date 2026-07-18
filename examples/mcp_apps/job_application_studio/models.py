@@ -121,6 +121,16 @@ class ApplicationRule(StudioModel):
     enabled: bool = True
 
 
+class DocumentSelection(StudioModel):
+    resume_paragraph_ids: list[str]
+    cover_letter_paragraph_ids: list[str]
+    rationale: str | None = None
+
+
+class ApplyDocumentSelectionResult(DocumentSelection):
+    application_id: str
+
+
 class ClaimVerification(StudioModel):
     document_id: str
     paragraph_id: str
@@ -146,6 +156,7 @@ class ApplicationDetail(StudioModel):
     application: Application
     target: ApplicationTarget
     source_documents: list[SourceDocument]
+    document_selection: DocumentSelection | None = None
 
 
 class GenerationResult(StudioModel):

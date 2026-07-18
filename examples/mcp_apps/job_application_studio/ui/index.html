@@ -101,6 +101,7 @@
           <div class="actions">
             <button class="secondary" id="save-constraints">Save constraints</button>
             <button class="primary" id="generate">Generate CV and cover letter</button>
+            <button class="secondary" id="generate-with-vibe">Generate with Vibe</button>
           </div>
         </section>
       </div>
@@ -249,6 +250,50 @@
       setWorkflow("Revision request sent to Vibe");
     }
 
+    function requestVibeSelection() {
+      const generatedSelection = Object.fromEntries(
+        (current.application.generated_documents || []).map(documentItem => [
+          documentItem.document_type,
+          documentItem.paragraphs.map(paragraph => paragraph.source_paragraph_id)
+        ])
+      );
+      const selectionContext = {
+        application: {
+          id: current.application.id,
+          name: `${current.target.organization} — ${current.target.title}`,
+          status: current.application.status
+        },
+        offer: {
+          organization: current.target.organization,
+          title: current.target.title,
+          description: current.target.summary,
+          target_criteria: current.target.requirements
+        },
+        constraints: current.application.constraints,
+        source_paragraphs: current.source_documents.flatMap(source =>
+          source.paragraphs.map(paragraph => ({
+            id: paragraph.id,
+            text: paragraph.text,
+            source_filename: source.file,
+            document_type: source.document_type,
+            criteria_tags: paragraph.criteria_tags,
+            truthful_sourced_claims: paragraph.claims
+          }))
+        ),
+        current_selection: current.document_selection || generatedSelection
+      };
+      const message = [
+        "Improve this Application Studio document selection for the specific offer below.",
+        "Reason about the strongest truthful evidence and choose existing paragraph IDs only.",
+        "Avoid weakly relevant paragraphs when native matches exist; preserve sourced claims.",
+        "You MUST call application_studio_apply_document_selection with application_id, resume_paragraph_ids, cover_letter_paragraph_ids, and an optional concise rationale.",
+        "Do not merely answer with prose. Do not edit source code or rules.json.",
+        `Complete selection context:\n${JSON.stringify(selectionContext, null, 2)}`
+      ].join("\n\n");
+      HostAdapter.sendUserMessage(message, selectionContext);
+      setWorkflow("Selection request sent to Vibe. Return here and regenerate after Vibe confirms.");
+    }
+
     async function saveConstraints() {
       setWorkflow("Saving constraints…", true);
       const constraints = {...current.application.constraints, notes: byId("constraints").value};
@@ -282,6 +327,7 @@
 
     byId("save-constraints").addEventListener("click", saveConstraints);
     byId("generate").addEventListener("click", generate);
+    byId("generate-with-vibe").addEventListener("click", requestVibeSelection);
     byId("regenerate").addEventListener("click", generate);
     byId("ready").addEventListener("click", markReady);
     byId("verify").addEventListener("click", verify);

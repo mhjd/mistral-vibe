@@ -17,8 +17,10 @@ from examples.mcp_apps.job_application_studio.models import (
     ApplicationStatus,
     ApplicationSummary,
     ApplicationTarget,
+    ApplyDocumentSelectionResult,
     ClaimStatus,
     ClaimVerification,
+    DocumentSelection,
     DocumentType,
     GeneratedDocument,
     GeneratedParagraph,
@@ -42,6 +44,7 @@ class StudioStorage:
     def __init__(self, data_dir: Path) -> None:
         self.data_dir = data_dir
         self._write_lock = asyncio.Lock()
+        self._document_selections: dict[str, DocumentSelection] = {}
 
     async def load_targets(self) -> list[ApplicationTarget]:
         return TypeAdapter(list[ApplicationTarget]).validate_json(
@@ -83,7 +86,47 @@ class StudioStorage:
         target = await self._find_target(application.target_id)
         sources = await self.load_source_documents()
         return ApplicationDetail(
-            application=application, target=target, source_documents=sources
+            application=application,
+            target=target,
+            source_documents=sources,
+            document_selection=self._document_selections.get(application_id),
+        )
+
+    async def apply_document_selection(
+        self,
+        application_id: str,
+        resume_paragraph_ids: list[str],
+        cover_letter_paragraph_ids: list[str],
+        rationale: str | None = None,
+    ) -> ApplyDocumentSelectionResult:
+        await self._find_application(application_id)
+        sources = await self.load_source_documents()
+        source_by_id = {
+            paragraph.id: source
+            for source in sources
+            for paragraph in source.paragraphs
+        }
+        paragraph_ids = resume_paragraph_ids + cover_letter_paragraph_ids
+        unknown_ids = [item for item in paragraph_ids if item not in source_by_id]
+        if unknown_ids:
+            raise StudioNotFoundError(f"Unknown source paragraph id: {unknown_ids[0]}")
+        for paragraph_id in resume_paragraph_ids:
+            if source_by_id[paragraph_id].document_type is not DocumentType.RESUME:
+                raise ValueError(f"Not a resume paragraph id: {paragraph_id}")
+        for paragraph_id in cover_letter_paragraph_ids:
+            if (
+                source_by_id[paragraph_id].document_type
+                is not DocumentType.COVER_LETTER
+            ):
+                raise ValueError(f"Not a cover letter paragraph id: {paragraph_id}")
+        selection = DocumentSelection(
+            resume_paragraph_ids=resume_paragraph_ids,
+            cover_letter_paragraph_ids=cover_letter_paragraph_ids,
+            rationale=rationale,
+        )
+        self._document_selections[application_id] = selection
+        return ApplyDocumentSelectionResult(
+            application_id=application_id, **selection.model_dump()
         )
 
     async def save_constraints(
@@ -113,7 +156,13 @@ class StudioStorage:
             target = await self._find_target(application.target_id)
             sources = await self.load_source_documents()
             rules = await self.load_rules()
-            documents = self._generate_documents(application, target, sources, rules)
+            documents = self._generate_documents(
+                application,
+                target,
+                sources,
+                rules,
+                self._document_selections.get(application_id),
+            )
             application.generated_documents = documents
             application.status = ApplicationStatus.GENERATED
             await self._write_generated_files(documents)
@@ -177,6 +226,7 @@ class StudioStorage:
         target: ApplicationTarget,
         sources: list[SourceDocument],
         rules: list[ApplicationRule],
+        selection: DocumentSelection | None = None,
     ) -> list[GeneratedDocument]:
         source_by_id = {
             paragraph.id: (source, paragraph)
@@ -186,10 +236,20 @@ class StudioStorage:
         active_rules = [
             rule for rule in rules if rule.enabled and self._rule_matches(rule, target)
         ]
-        resume_sources = self._select_resume_sources(
-            application, target, sources, active_rules
-        )
-        letter_sources = self._select_letter_sources(application, target, sources)
+        if selection is None:
+            resume_sources = self._select_resume_sources(
+                application, target, sources, active_rules
+            )
+            letter_sources = self._select_letter_sources(application, target, sources)
+        else:
+            resume_sources = [
+                source_by_id[paragraph_id]
+                for paragraph_id in selection.resume_paragraph_ids
+            ]
+            letter_sources = [
+                source_by_id[paragraph_id]
+                for paragraph_id in selection.cover_letter_paragraph_ids
+            ]
         resume_paragraphs = [
             self._generated_paragraph(
                 application, target, source, paragraph, active_rules, index

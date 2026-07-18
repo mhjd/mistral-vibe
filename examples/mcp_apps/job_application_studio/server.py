@@ -10,6 +10,7 @@ from examples.mcp_apps.job_application_studio.models import (
     ApplicationDetail,
     ApplicationList,
     ApplicationStatus,
+    ApplyDocumentSelectionResult,
     GenerationResult,
     OpenStudioResult,
     VerificationResult,
@@ -72,6 +73,22 @@ async def update_application_status(
 )
 async def generate_application(application_id: str) -> GenerationResult:
     return await storage.generate_application(application_id)
+
+
+@mcp.tool(
+    description=(
+        "Store Vibe's exact sourced paragraph selection for later document generation."
+    )
+)
+async def apply_document_selection(
+    application_id: str,
+    resume_paragraph_ids: list[str],
+    cover_letter_paragraph_ids: list[str],
+    rationale: str | None = None,
+) -> ApplyDocumentSelectionResult:
+    return await storage.apply_document_selection(
+        application_id, resume_paragraph_ids, cover_letter_paragraph_ids, rationale
+    )
 
 
 @mcp.tool(
