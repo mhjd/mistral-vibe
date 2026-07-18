@@ -323,6 +323,12 @@ scopes = ["read", "write"]
 # Optional: redirect_port = 47823
 ```
 
+An MCP tool that advertises `_meta.ui.resourceUri` opens its MCP App in a local
+browser host after a successful call. Tool requests from the App are qualified
+with the originating server alias and go through normal Vibe permissions. User
+messages from the App create regular serialized Vibe turns and preserve their
+structured context.
+
 HTTP MCP servers can use either static auth or OAuth:
 
 - Static auth: legacy `api_key_env` / `headers` keys still work and are

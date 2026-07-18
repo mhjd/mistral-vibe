@@ -641,6 +641,12 @@ permission = "always"
 permission = "ask"
 ```
 
+MCP tools that advertise `_meta.ui.resourceUri` open their MCP App in a local
+browser host after a successful call. App-initiated tool calls use the same Vibe
+permission pipeline, and App messages start normal Vibe user turns. The
+reproducible Application Studio demo is documented in
+[`docs/hackathon/progress/e2e.md`](docs/hackathon/progress/e2e.md).
+
 MCP server configurations support additional features:
 
 - **Environment variables**: Set environment variables for MCP servers
