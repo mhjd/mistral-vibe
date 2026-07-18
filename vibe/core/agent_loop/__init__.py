@@ -12,6 +12,7 @@ from vibe.core.agent_loop._loop import (
     ToolExecutionResponse,
     requires_init,
 )
+from vibe.core.agent_loop.models import ExternalUserMessage
 
 __all__ = [
     "AgentLoop",
@@ -19,6 +20,7 @@ __all__ = [
     "AgentLoopLLMResponseError",
     "AgentLoopStateError",
     "CompactionFailedError",
+    "ExternalUserMessage",
     "ImagesNotSupportedError",
     "TeleportError",
     "ToolDecision",

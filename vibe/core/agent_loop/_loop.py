@@ -19,8 +19,9 @@ import time
 from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import uuid4
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, JsonValue, ValidationError
 
+from vibe.core.agent_loop.models import ExternalUserMessage
 from vibe.core.agent_loop_hooks import AgentLoopHooksMixin
 from vibe.core.agents.manager import AgentManager
 from vibe.core.agents.models import AgentProfile, BuiltinAgentName
@@ -50,6 +51,8 @@ from vibe.core.llm.exceptions import BackendError
 from vibe.core.llm.format import (
     APIToolFormatHandler,
     FailedToolCall,
+    ParsedMessage,
+    ParsedToolCall,
     ResolvedMessage,
     ResolvedToolCall,
 )
@@ -460,6 +463,8 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
         self._reactive_recovery_used: bool = False
         self._pending_injected_messages: list[LLMMessage] = []
         self._pending_clear_context: bool = False
+        self._operation_lock = asyncio.Lock()
+        self._closed = False
 
         self.experiment_manager = ExperimentManager(
             client=RemoteEvalClient.from_settings(
@@ -722,6 +727,7 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
         self.telemetry_client.send_session_closed()
 
     async def aclose(self) -> None:
+        self._closed = True
         if (task := self._experiments_task) is not None and not task.done():
             task.cancel()
             with contextlib.suppress(BaseException):
@@ -904,31 +910,107 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
         images: list[ImageAttachment] | None = None,
         user_display_content: UserDisplayContentMetadata | None = None,
     ) -> AsyncGenerator[BaseEvent, None]:
-        try:
-            active_model = self.config.get_active_model()
-            model_name = active_model.name
-        except ValueError:
-            active_model = None
-            model_name = None
-        if images and active_model is not None and not active_model.supports_images:
-            raise ImagesNotSupportedError(active_model.alias)
-        self._clean_message_history()
-        try:
+        async with self._operation_lock:
+            self._ensure_open()
+            try:
+                active_model = self.config.get_active_model()
+                model_name = active_model.name
+            except ValueError:
+                active_model = None
+                model_name = None
+            if images and active_model is not None and not active_model.supports_images:
+                raise ImagesNotSupportedError(active_model.alias)
+            self._clean_message_history()
+            try:
+                self.checkpoint_recorder.create_checkpoint()
+                async with agent_span(model=model_name, session_id=self.session_id):
+                    async for event in self._conversation_loop(
+                        msg,
+                        client_message_id=client_message_id,
+                        auto_title=auto_title,
+                        images=images,
+                        user_display_content=user_display_content,
+                    ):
+                        yield event
+            finally:
+                # Seal the turn's post-edit boundary so per-turn review can attribute
+                # later edits correctly, even if the turn opens then fails, or is
+                # cancelled mid-flight.
+                self.checkpoint_recorder.seal_turn()
+
+    @property
+    def operation_active(self) -> bool:
+        return self._operation_lock.locked()
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise AgentLoopStateError("Agent loop is closed")
+
+    @requires_init
+    async def submit_user_message(
+        self,
+        message: str,
+        *,
+        context: dict[str, JsonValue] | None = None,
+        source: str = "external",
+        client_message_id: str | None = None,
+    ) -> AsyncGenerator[BaseEvent, None]:
+        request = ExternalUserMessage(message=message, context=context, source=source)
+        async with contextlib.aclosing(
+            self.act(
+                request.render(),
+                client_message_id=client_message_id,
+                user_display_content=request.display_metadata(),
+            )
+        ) as events:
+            async for event in events:
+                yield event
+
+    @requires_init
+    async def execute_tool(
+        self, tool_name: str, arguments: dict[str, object]
+    ) -> AsyncGenerator[
+        ToolCallEvent | ToolResultEvent | ToolStreamEvent | HookEvent, None
+    ]:
+        async with self._operation_lock:
+            self._ensure_open()
+            call_id = str(uuid4())
+            parsed = ParsedMessage(
+                tool_calls=[
+                    ParsedToolCall(
+                        tool_name=tool_name, raw_args=arguments, call_id=call_id
+                    )
+                ]
+            )
+            resolved = self.format_handler.resolve_tool_calls(parsed, self.tool_manager)
+
+            async for event in self._emit_failed_tool_events(
+                resolved.failed_calls, record_response=False
+            ):
+                yield event
+            if not resolved.tool_calls:
+                return
+
+            tool_call = resolved.tool_calls[0]
+            yield ToolCallEvent(
+                tool_name=tool_call.tool_name,
+                tool_class=tool_call.tool_class,
+                args=tool_call.validated_args,
+                tool_call_id=tool_call.call_id,
+            )
+
             self.checkpoint_recorder.create_checkpoint()
-            async with agent_span(model=model_name, session_id=self.session_id):
-                async for event in self._conversation_loop(
-                    msg,
-                    client_message_id=client_message_id,
-                    auto_title=auto_title,
-                    images=images,
-                    user_display_content=user_display_content,
+            try:
+                async for event in self._run_tools_concurrently(
+                    [tool_call], record_response=False
                 ):
                     yield event
-        finally:
-            # Seal the turn's post-edit boundary so per-turn review can attribute
-            # later edits correctly, even if the turn opens then fails, or is
-            # cancelled mid-flight.
-            self.checkpoint_recorder.seal_turn()
+            finally:
+                self.checkpoint_recorder.seal_turn()
 
     @property
     def teleport_service(self) -> TeleportService:
@@ -1631,7 +1713,7 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
             yield event
 
     async def _emit_failed_tool_events(
-        self, failed_calls: list[FailedToolCall]
+        self, failed_calls: list[FailedToolCall], *, record_response: bool = True
     ) -> AsyncGenerator[ToolResultEvent]:
         for failed in failed_calls:
             error_msg = f"<{TOOL_ERROR_TAG}>{failed.tool_name}: {failed.error}</{TOOL_ERROR_TAG}>"
@@ -1642,14 +1724,15 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
                 tool_call_id=failed.call_id,
             )
             self.stats.tool_calls_failed += 1
-            self.messages.append(
-                self.format_handler.create_failed_tool_response_message(
-                    failed, error_msg
+            if record_response:
+                self.messages.append(
+                    self.format_handler.create_failed_tool_response_message(
+                        failed, error_msg
+                    )
                 )
-            )
 
     async def _run_tools_concurrently(
-        self, tool_calls: list[ResolvedToolCall]
+        self, tool_calls: list[ResolvedToolCall], *, record_response: bool = True
     ) -> AsyncGenerator[ToolCallEvent | ToolResultEvent | ToolStreamEvent | HookEvent]:
         """Execute multiple tool calls concurrently, yielding events as they arrive."""
         queue: asyncio.Queue[
@@ -1657,7 +1740,9 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
         ] = asyncio.Queue()
 
         tasks = [
-            asyncio.create_task(self._execute_tool_to_queue(tc, queue))
+            asyncio.create_task(
+                self._execute_tool_to_queue(tc, queue, record_response=record_response)
+            )
             for tc in tool_calls
         ]
 
@@ -1698,30 +1783,42 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
         queue: asyncio.Queue[
             ToolCallEvent | ToolResultEvent | ToolStreamEvent | HookEvent | None
         ],
+        *,
+        record_response: bool = True,
     ) -> None:
         """Run a single tool call, sending events to the queue."""
-        async for event in self._process_one_tool_call(tc):
+        async for event in self._process_one_tool_call(
+            tc, record_response=record_response
+        ):
             await queue.put(event)
 
     async def _process_one_tool_call(
-        self, tool_call: ResolvedToolCall
+        self, tool_call: ResolvedToolCall, *, record_response: bool = True
     ) -> AsyncGenerator[ToolResultEvent | ToolStreamEvent | HookEvent]:
         async with tool_span(
             tool_name=tool_call.tool_name,
             call_id=tool_call.call_id,
             arguments=tool_call.validated_args.model_dump_json(),
         ) as span:
-            async for event in self._execute_tool_call(span, tool_call):
+            async for event in self._execute_tool_call(
+                span, tool_call, record_response=record_response
+            ):
                 yield event
 
     async def _execute_tool_call(
-        self, span: trace.Span, tool_call: ResolvedToolCall
+        self,
+        span: trace.Span,
+        tool_call: ResolvedToolCall,
+        *,
+        record_response: bool = True,
     ) -> AsyncGenerator[ToolResultEvent | ToolStreamEvent | HookEvent]:
         try:
             tool_instance = self.tool_manager.get(tool_call.tool_name)
         except Exception as exc:
             error_msg = f"Error getting tool '{tool_call.tool_name}': {exc}"
-            yield self._tool_failure_event(tool_call, error_msg, span=span)
+            yield self._tool_failure_event(
+                tool_call, error_msg, span=span, record_response=record_response
+            )
             return
 
         try:
@@ -1738,11 +1835,17 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
                 error=error_msg,
                 tool_call_id=tool_call.call_id,
             )
-            self._handle_tool_response(tool_call, error_msg, "failure", span=span)
+            self._handle_tool_response(
+                tool_call,
+                error_msg,
+                "failure",
+                span=span,
+                record_response=record_response,
+            )
             return
 
         events, resolution = await self._run_pre_tool_pipeline(
-            tool_call, tool_input, span=span
+            tool_call, tool_input, span=span, record_response=record_response
         )
         for ev in events:
             yield ev
@@ -1760,13 +1863,20 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
             )
 
             if decision.verdict == ToolExecutionResponse.SKIP:
-                async for ev in self._handle_tool_skip(tool_call, decision, span=span):
+                async for ev in self._handle_tool_skip(
+                    tool_call, decision, span=span, record_response=record_response
+                ):
                     yield ev
                 return
 
             tool_started = True
             async for ev in self._invoke_tool(
-                tool_call, tool_instance, tool_input, decision, span=span
+                tool_call,
+                tool_instance,
+                tool_input,
+                decision,
+                span=span,
+                record_response=record_response,
             ):
                 yield ev
 
@@ -1789,6 +1899,7 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
                 cancel,
                 span=span,
                 tool_started=tool_started,
+                record_response=record_response,
             ):
                 yield ev
             raise
@@ -1804,17 +1915,18 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
                 tool_name=tool_call.tool_name,
                 tool_class=tool_call.tool_class,
                 error=error_msg,
+                permission_denied=isinstance(exc, ToolPermissionError),
                 tool_call_id=tool_call.call_id,
             )
             async for ev in self._run_post_tool_and_finalize(
                 tool_call,
                 tool_input=tool_input,
                 tool_status="failure",
-                response_status="failure",
                 decision=decision,
                 span=span,
                 tool_error=str(exc),
                 initial_text=error_msg,
+                record_response=record_response,
             ):
                 yield ev
 
@@ -1826,6 +1938,7 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
         decision: ToolDecision,
         *,
         span: trace.Span,
+        record_response: bool = True,
     ) -> AsyncGenerator[ToolResultEvent | ToolStreamEvent | HookEvent]:
         self.stats.tool_calls_agreed += 1
 
@@ -1889,12 +2002,12 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
             tool_call,
             tool_input=tool_input,
             tool_status="cancelled" if result_cancelled else "success",
-            response_status="success",
             decision=decision,
             span=span,
             tool_output=result_dict,
             duration_ms=duration * 1000.0,
             initial_text=text,
+            record_response=record_response,
         ):
             yield ev
         self.stats.tool_calls_succeeded += 1
@@ -1979,12 +2092,14 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
         decision: ToolDecision | None = None,
         result: dict[str, Any] | None = None,
         span: trace.Span | None = None,
+        record_response: bool = True,
     ) -> None:
-        self.messages.append(
-            LLMMessage.model_validate(
-                self.format_handler.create_tool_response_message(tool_call, text)
+        if record_response:
+            self.messages.append(
+                LLMMessage.model_validate(
+                    self.format_handler.create_tool_response_message(tool_call, text)
+                )
             )
-        )
 
         if span is not None:
             set_tool_result(span, text)
@@ -1995,7 +2110,7 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
             status=status,
             decision=decision,
             result=result,
-            message_id=self._current_user_message_id,
+            message_id=self._current_user_message_id if record_response else None,
         )
 
     def _tool_failure_event(
@@ -2005,9 +2120,17 @@ class AgentLoop(AgentLoopHooksMixin):  # noqa: PLR0904
         decision: ToolDecision | None = None,
         cancelled: bool = False,
         span: trace.Span | None = None,
+        record_response: bool = True,
     ) -> ToolResultEvent:
         """Create a ToolResultEvent for a failed tool and record the failure."""
-        self._handle_tool_response(tool_call, error_msg, "failure", decision, span=span)
+        self._handle_tool_response(
+            tool_call,
+            error_msg,
+            "failure",
+            decision,
+            span=span,
+            record_response=record_response,
+        )
         return ToolResultEvent(
             tool_name=tool_call.tool_name,
             tool_class=tool_call.tool_class,

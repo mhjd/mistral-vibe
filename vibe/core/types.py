@@ -502,6 +502,7 @@ class ToolResultEvent(BaseEvent):
     skipped: bool = False
     skip_reason: str | None = None
     cancelled: bool = False
+    permission_denied: bool = False
     duration: float | None = None
     tool_call_id: str
 

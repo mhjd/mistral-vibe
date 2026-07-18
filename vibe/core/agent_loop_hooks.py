@@ -92,6 +92,7 @@ class AgentLoopHooksMixin:
         decision: ToolDecision | None = None,
         result: dict[str, Any] | None = None,
         span: trace.Span | None = None,
+        record_response: bool = True,
     ) -> None: ...
 
     def _serialize_tool_input(self, tool_call: ResolvedToolCall) -> dict[str, Any]:
@@ -194,20 +195,20 @@ class AgentLoopHooksMixin:
         *,
         tool_input: dict[str, Any],
         tool_status: ToolStatus,
-        response_status: Literal["success", "failure", "skipped"],
         decision: ToolDecision | None = None,
         span: trace.Span,
         tool_output: dict[str, Any] | None = None,
         tool_error: str | None = None,
         duration_ms: float = 0.0,
         initial_text: str = "",
+        record_response: bool = True,
     ) -> AsyncGenerator[HookEvent]:
         """Run post-tool hooks, apply text replacements, and record the response.
 
         Yields ``HookEvent`` instances for the caller to forward to the UI.
         The final text (after any ``HookTextReplacement``) is passed to
-        ``_handle_tool_response`` together with the given *response_status*
-        and *decision*.
+        ``_handle_tool_response`` together with the status derived from
+        *tool_status* and the given *decision*.
         """
         final_text = initial_text
         async for ev in self._run_post_tool_hooks(
@@ -224,7 +225,13 @@ class AgentLoopHooksMixin:
             else:
                 yield ev
         self._handle_tool_response(
-            tool_call, final_text, response_status, decision, tool_output, span=span
+            tool_call,
+            final_text,
+            "failure" if tool_status == "failure" else "success",
+            decision,
+            tool_output,
+            span=span,
+            record_response=record_response,
         )
 
     # ------------------------------------------------------------------
@@ -237,6 +244,7 @@ class AgentLoopHooksMixin:
         tool_input: dict[str, Any],
         *,
         span: trace.Span,
+        record_response: bool = True,
     ) -> tuple[list[HookEvent], _PreToolResolution]:
         """Validate each rewrite as it arrives; first invalid one aborts the chain.
 
@@ -249,7 +257,9 @@ class AgentLoopHooksMixin:
                 return events, _PreToolResolution(
                     tool_call=tool_call,
                     tool_input=tool_input,
-                    denial_event=self._handle_pre_tool_denial(tool_call, ev, span=span),
+                    denial_event=self._handle_pre_tool_denial(
+                        tool_call, ev, span=span, record_response=record_response
+                    ),
                 )
             if isinstance(ev, HookToolInputRewrite):
                 rewritten = self._apply_tool_input_rewrite(tool_call, ev)
@@ -258,7 +268,10 @@ class AgentLoopHooksMixin:
                         tool_call=tool_call,
                         tool_input=tool_input,
                         denial_event=self._handle_pre_tool_denial(
-                            tool_call, rewritten, span=span
+                            tool_call,
+                            rewritten,
+                            span=span,
+                            record_response=record_response,
                         ),
                     )
                 tool_call, tool_input = rewritten
@@ -321,14 +334,26 @@ class AgentLoopHooksMixin:
                     return
 
     def _handle_pre_tool_denial(
-        self, tool_call: ResolvedToolCall, denial: HookToolDenial, *, span: trace.Span
+        self,
+        tool_call: ResolvedToolCall,
+        denial: HookToolDenial,
+        *,
+        span: trace.Span,
+        record_response: bool = True,
     ) -> ToolResultEvent:
         self.stats.tool_calls_hook_denied += 1
         denial_text = (
             f"<{TOOL_ERROR_TAG}>Tool '{tool_call.tool_name}' was denied by "
             f"hook '{denial.hook_name}': {denial.content}</{TOOL_ERROR_TAG}>"
         )
-        self._handle_tool_response(tool_call, denial_text, "skipped", None, span=span)
+        self._handle_tool_response(
+            tool_call,
+            denial_text,
+            "skipped",
+            None,
+            span=span,
+            record_response=record_response,
+        )
         return ToolResultEvent(
             tool_name=tool_call.tool_name,
             tool_class=tool_call.tool_class,
@@ -343,7 +368,12 @@ class AgentLoopHooksMixin:
     # ------------------------------------------------------------------
 
     async def _handle_tool_skip(
-        self, tool_call: ResolvedToolCall, decision: ToolDecision, *, span: trace.Span
+        self,
+        tool_call: ResolvedToolCall,
+        decision: ToolDecision,
+        *,
+        span: trace.Span,
+        record_response: bool = True,
     ) -> AsyncGenerator[ToolResultEvent | HookEvent]:
         self.stats.tool_calls_rejected += 1
         skip_reason = decision.feedback or str(
@@ -357,10 +387,16 @@ class AgentLoopHooksMixin:
             skipped=True,
             skip_reason=skip_reason,
             cancelled=f"<{CANCELLATION_TAG}>" in skip_reason,
+            permission_denied=True,
             tool_call_id=tool_call.call_id,
         )
         self._handle_tool_response(
-            tool_call, skip_reason, "skipped", decision, span=span
+            tool_call,
+            skip_reason,
+            "skipped",
+            decision,
+            span=span,
+            record_response=record_response,
         )
 
     async def _finalize_cancelled_tool(
@@ -372,6 +408,7 @@ class AgentLoopHooksMixin:
         *,
         span: trace.Span,
         tool_started: bool,
+        record_response: bool = True,
     ) -> AsyncGenerator[HookEvent]:
         """Shield post-tool hooks from cancellation so audit/redaction hooks
         still observe the cancelled call.  Yields ``HookEvent`` instances.
@@ -384,7 +421,12 @@ class AgentLoopHooksMixin:
         """
         if not tool_started:
             self._handle_tool_response(
-                tool_call, cancel_text, "failure", decision, span=span
+                tool_call,
+                cancel_text,
+                "failure",
+                decision,
+                span=span,
+                record_response=record_response,
             )
             return
         try:
@@ -400,11 +442,21 @@ class AgentLoopHooksMixin:
             for ev in hook_events:
                 yield ev
             self._handle_tool_response(
-                tool_call, final_text, "failure", decision, span=span
+                tool_call,
+                final_text,
+                "failure",
+                decision,
+                span=span,
+                record_response=record_response,
             )
         except asyncio.CancelledError:
             self._handle_tool_response(
-                tool_call, cancel_text, "failure", decision, span=span
+                tool_call,
+                cancel_text,
+                "failure",
+                decision,
+                span=span,
+                record_response=record_response,
             )
 
     # ------------------------------------------------------------------
